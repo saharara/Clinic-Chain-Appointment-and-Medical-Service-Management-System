@@ -3,16 +3,15 @@ from typing import Dict, Any
 
 
 @dataclass
-class DanhMucThuoc:
-    """Entity mapping for table DANH_MUC_THUOC"""
+class Thuoc:
     MaThuoc: str
     TenThuoc: str
     DonViTinh: str
 
-    __tablename__ = "DANH_MUC_THUOC"
+    __tablename__ = "THUOC"
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "DanhMucThuoc":
+    def from_dict(cls, d: Dict[str, Any]) -> "Thuoc":
         return cls(
             MaThuoc=d.get("MaThuoc"),
             TenThuoc=d.get("TenThuoc"),

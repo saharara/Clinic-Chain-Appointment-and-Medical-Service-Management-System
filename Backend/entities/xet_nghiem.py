@@ -6,7 +6,7 @@ from typing import Dict, Any
 class XetNghiemVien:
 	MaXNV: str
 	HoTen: str
-	TenDangNhap: str
+	SDT: str
 	MatKhau: str
 
 	__tablename__ = "XET_NGHIEM_VIEN"
@@ -16,6 +16,6 @@ class XetNghiemVien:
 		return cls(
 			MaXNV=d.get("MaXNV"),
 			HoTen=d.get("HoTen"),
-			TenDangNhap=d.get("TenDangNhap"),
+			SDT=d.get("SDT"),
 			MatKhau=d.get("MatKhau"),
 		)

@@ -4,10 +4,9 @@ from typing import Dict, Any
 
 @dataclass
 class LeTan:
-	"""Entity mapping for table LE_TAN (receptionist)"""
 	MaLeTan: str
 	HoTen: str
-	TenDangNhap: str
+	SDT: str
 	MatKhau: str
 
 	__tablename__ = "LE_TAN"
@@ -17,6 +16,6 @@ class LeTan:
 		return cls(
 			MaLeTan=d.get("MaLeTan"),
 			HoTen=d.get("HoTen"),
-			TenDangNhap=d.get("TenDangNhap"),
+			SDT=d.get("SDT"),
 			MatKhau=d.get("MatKhau"),
 		)

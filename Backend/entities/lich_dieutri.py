@@ -4,27 +4,24 @@ from typing import Optional, Dict, Any
 
 @dataclass
 class LichTrinhDieuTri:
-	"""Entity mapping for table LICH_TRINH_DIEU_TRI"""
-	MaChiTietDieuTri: str
+	MaLichTrinh: str
 	MaLuotKham: str
-	MaTreatment: str
-	LuotThu: int
-	TrangThai: str
+	MaDichVu: str
+	BuoiSo: int
 	NgayThucHien: Optional[str]
-	MaBacSiThucHien: Optional[str]
-	KetQuaChiTiet: Optional[str]
+	CaKham: int
+	TrangThai: str
 
 	__tablename__ = "LICH_TRINH_DIEU_TRI"
 
 	@classmethod
 	def from_dict(cls, d: Dict[str, Any]) -> "LichTrinhDieuTri":
 		return cls(
-			MaChiTietDieuTri=d.get("MaChiTietDieuTri"),
+			MaLichTrinh=d.get("MaLichTrinh"),
 			MaLuotKham=d.get("MaLuotKham"),
-			MaTreatment=d.get("MaTreatment"),
-			LuotThu=d.get("LuotThu"),
-			TrangThai=d.get("TrangThai"),
+			MaDichVu=d.get("MaDichVu"),
+			BuoiSo=d.get("BuoiSo"),
 			NgayThucHien=d.get("NgayThucHien"),
-			MaBacSiThucHien=d.get("MaBacSiThucHien"),
-			KetQuaChiTiet=d.get("KetQuaChiTiet"),
+			CaKham=d.get("CaKham"),
+			TrangThai=d.get("TrangThai"),
 		)

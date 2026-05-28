@@ -3,23 +3,22 @@ from typing import Optional, Dict, Any
 
 
 @dataclass
-class DangKyKham:
-	"""Entity mapping for table DANG_KY_KHAM"""
+class LichHen:
 	MaLichHen: str
 	MaBenhAn: str
 	MaCauHinh: str
 	NgayKham: str
 	CaKham: int
 	STT: int
-	LoaiSuat: str
 	PaymentToken: Optional[str]
+	GiaCuoi: int
 	TrangThai: str
 	MaLeTan: Optional[str]
 
-	__tablename__ = "DANG_KY_KHAM"
+	__tablename__ = "LICH_HEN"
 
 	@classmethod
-	def from_dict(cls, d: Dict[str, Any]) -> "DangKyKham":
+	def from_dict(cls, d: Dict[str, Any]) -> "LichHen":
 		return cls(
 			MaLichHen=d.get("MaLichHen"),
 			MaBenhAn=d.get("MaBenhAn"),
@@ -27,8 +26,8 @@ class DangKyKham:
 			NgayKham=d.get("NgayKham"),
 			CaKham=d.get("CaKham"),
 			STT=d.get("STT"),
-			LoaiSuat=d.get("LoaiSuat"),
 			PaymentToken=d.get("PaymentToken"),
+			GiaCuoi=d.get("GiaCuoi"),
 			TrangThai=d.get("TrangThai"),
 			MaLeTan=d.get("MaLeTan"),
 		)

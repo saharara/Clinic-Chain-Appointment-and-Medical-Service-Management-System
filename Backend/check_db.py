@@ -1,18 +1,15 @@
-import sqlite3
+# database.py
+
+import aiosqlite
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "hospital.db"
 
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
 
-cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-tables = cursor.fetchall()
+async def get_connection():
+    conn = await aiosqlite.connect(DB_PATH)
+    conn.row_factory = aiosqlite.Row
 
-print("Số bảng:", len(tables))
-print("Danh sách bảng:")
+    await conn.execute("PRAGMA foreign_keys = ON;")
 
-for t in tables:
-    print("-", t[0])
-
-conn.close()
+    return conn

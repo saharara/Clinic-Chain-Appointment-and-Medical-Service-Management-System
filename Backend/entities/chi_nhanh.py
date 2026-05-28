@@ -4,11 +4,10 @@ from typing import Dict, Any, Optional
 
 @dataclass
 class ChiNhanh:
-	"""Entity mapping for table CHI_NHANH"""
 	MaChiNhanh: str
 	TenChiNhanh: str
 	DiaChi: Optional[str]
-
+	SDT: Optional[str]
 	__tablename__ = "CHI_NHANH"
 
 	@classmethod
@@ -17,4 +16,5 @@ class ChiNhanh:
 			MaChiNhanh=d.get("MaChiNhanh"),
 			TenChiNhanh=d.get("TenChiNhanh"),
 			DiaChi=d.get("DiaChi"),
+			SDT=d.get("SDT"),
 		)

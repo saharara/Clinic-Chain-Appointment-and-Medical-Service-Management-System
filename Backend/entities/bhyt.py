@@ -4,9 +4,9 @@ from typing import Dict, Any
 
 @dataclass
 class DanhMucBHYT:
-    """Entity mapping for table DANH_MUC_BHYT"""
     KyTuDauBHYT: str
-    DoiTuongChinhSach: int
+    DoiTuongChinhSach: str
+    TyLeHuong: float
 
     __tablename__ = "DANH_MUC_BHYT"
 
@@ -15,4 +15,5 @@ class DanhMucBHYT:
         return cls(
             KyTuDauBHYT=d.get("KyTuDauBHYT"),
             DoiTuongChinhSach=d.get("DoiTuongChinhSach"),
+            TyLeHuong=d.get("TyLeHuong"),
         )
