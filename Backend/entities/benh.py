@@ -4,7 +4,6 @@ from typing import Dict, Any
 
 @dataclass
 class DanhMucBenh:
-    """Entity mapping for table DANH_MUC_BENH"""
     MaBenh: str
     TenBenh: str
 

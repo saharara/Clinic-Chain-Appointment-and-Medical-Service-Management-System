@@ -1,580 +1,315 @@
-from entities.bacsi import BacSi
-from entities.cau_hinh_dich_vu import CauHinhDichVu
-from entities.chi_nhanh import ChiNhanh
-from entities.list_dichvu import DanhMucDichVu
-from entities.le_tan import LeTan
-from entities.lich_truc import LichTruc
-from entities.xet_nghiem import XetNghiemVien
-from entities.noti import LichSuThongBao
-from entities.benh_nhan import BenhNhan
-from entities.luot_kham import LuotKham
-from entities.dky_kham import DangKyKham
-from entities.lich_dieutri import LichTrinhDieuTri
+import uuid
 
-async def creat_doctor_account(name: str, MaBacSi: str, chuyen_khoa: str, password: str):
-    doctor = BacSi(
-        MaBacSi=MaBacSi,
-        HoTen=name,
-        ChuyenKhoa=chuyen_khoa,
-        MatKhau=password
-    )
-    if await BacSi.find_one(BacSi.MaBacSi == MaBacSi):
-        return {
-            "success": False,
-            "message": "Tài khoản đã tồn tại.",
-            "data": None
-        }
-        
-    await doctor.insert()
-    return {
-        "success": True,
-        "message": "Tạo tài khoản bác sĩ thành công",
-        "data": doctor
-    }
-async def get_chi_nhanh(MaChiNhanh: str):
-    chi_nhanh = await ChiNhanh.find_one(ChiNhanh.MaChiNhanh == MaChiNhanh)
-    if not chi_nhanh:
-        return {
-            "success": False,
-            "message": "Chi nhánh không tồn tại.",
-            "data": None
-        }
-    return {
-        "success": True,
-        "message": "Lấy thông tin chi nhánh thành công",
-        "data": chi_nhanh
-    }
-async def delete_doctor_account(MaBacSi: str):
-    doctor = await BacSi.find_one(BacSi.MaBacSi == MaBacSi)
-    if not doctor:
-        return {
-            "success": False,
-            "message": "Tài khoản không tồn tại.",
-            "data": None
-        }
-    await doctor.delete()
-    return {
-        "success": True,
-        "message": "Xóa tài khoản bác sĩ thành công",
-        "data": None
-    }
+from check_db import get_connection
 
-async def change_doctor_password(MaBacSi: str, new_password: str):
-    doctor = await BacSi.find_one(BacSi.MaBacSi == MaBacSi)
-    if not doctor:
-        return {
-            "success": False,
-            "message": "Tài khoản không tồn tại.",
-            "data": None
-        }
-    doctor.MatKhau = new_password
-    doctor.ChuyenKhoa = doctor.ChuyenKhoa
-    doctor.HoTen = doctor.HoTen
-    await doctor.update()
-    return {
-        "success": True,
-        "message": "Đổi mật khẩu bác sĩ thành công",
-        "data": doctor
-    }
-    
-async def setting_service(
-    MaCauHinh: str,
-    MaChiNhanh: str,
-    MaDichVu: str,
-    GiaTieuChuan: int,
-    GiaVIP: int,
-    SlotGioiHan: int,
-    TenDichVu: str,
-    LoaiDichVu: str
+async def create_branch(
+    ten_chi_nhanh: str,
+    dia_chi: str,
+    sdt: str = None
 ):
-    cauhinh = await CauHinhDichVu.find_one(
-        CauHinhDichVu.MaCauHinh == MaCauHinh
-    )
 
-    dichvu = await DanhMucDichVu.find_one(
-        DanhMucDichVu.MaDichVu == MaDichVu
-    )
-
-    if not cauhinh:
+    if not ten_chi_nhanh or not dia_chi:
         return {
             "success": False,
-            "message": "Không tìm thấy cấu hình dịch vụ"
-        }
-
-    if not dichvu:
-        return {
-            "success": False,
-            "message": "Không tìm thấy dịch vụ"
-        }
-
-    # Update cấu hình
-    cauhinh.MaChiNhanh = MaChiNhanh
-    cauhinh.MaDichVu = MaDichVu
-    cauhinh.GiaTieuChuan = GiaTieuChuan
-    cauhinh.GiaVIP = GiaVIP
-    cauhinh.SlotGioiHan = SlotGioiHan
-
-    await cauhinh.update()
-
-    return {
-        "success": True,
-        "message": "Cập nhật cấu hình dịch vụ thành công",
-        "data": {
-            "cauhinh": cauhinh,
-            "dichvu": dichvu
-        }
-    }
-    
-async def get_dich_vu(MaDichVu: str, TenDichVu: str, LoaiDichVu: str):
-    dichvu = await DanhMucDichVu.find_one(
-        (DanhMucDichVu.MaDichVu == MaDichVu) | 
-        (DanhMucDichVu.TenDichVu == TenDichVu) | 
-        (DanhMucDichVu.LoaiDichVu == LoaiDichVu)
-    )
-
-    if not dichvu:
-        return {
-            "success": False,
-            "message": "Không tìm thấy dịch vụ"
-        }
-
-    return {
-        "success": True,
-        "message": "Lấy thông tin dịch vụ thành công",
-        "data": dichvu
-    }
-    
-
-async def manage_lich_truc(MaLichTruc: str, MaNguoiDung: str, VaiTro: str, MaChiNhanh: str, NgayTruc: str, CaTruc: int):
-    lichtruc = await LichTruc.find_one(LichTruc.MaLichTruc == MaLichTruc)
-
-    if not lichtruc:
-        return {
-            "success": False,
-            "message": "Không tìm thấy lịch trực"
-        }
-
-    lichtruc.MaNguoiDung = MaNguoiDung
-    lichtruc.VaiTro = VaiTro
-    lichtruc.MaChiNhanh = MaChiNhanh
-    lichtruc.NgayTruc = NgayTruc
-    lichtruc.CaTruc = CaTruc
-
-    await lichtruc.update()
-
-    return {
-        "success": True,
-        "message": "Cập nhật lịch trực thành công",
-        "data": lichtruc
-    }
-
-async def get_lich_truc(MaNguoiDung: str):
-    lichtruc = await LichTruc.find_one(LichTruc.MaNguoiDung == MaNguoiDung)
-
-    if not lichtruc:
-        return {
-            "success": False,
-            "message": "Không tìm thấy lịch trực"
-        }
-
-    return {
-        "success": True,
-        "message": "Lấy thông tin lịch trực thành công",
-        "data": lichtruc
-    }
-    
-
-async def import_monthly_lich_truc(admin_id: str, MaChiNhanh: str, Thang: str, entries: list):
-    # Basic validation
-    required = {"MaNguoiDung", "VaiTro", "NgayTruc", "CaTruc"}
-    malformed = []
-    for i, e in enumerate(entries):
-        if not isinstance(e, dict) or not required.issubset(set(e.keys())):
-            malformed.append(i)
-
-    if malformed:
-        return {
-            "success": False,
-            "message": f"Dữ liệu không hợp lệ ở các dòng: {malformed}",
+            "message": "Thiếu thông tin chi nhánh.",
             "data": None
         }
 
-    # Check internal conflicts in uploaded data (same doctor, same date and shift)
-    seen = set()
-    conflicts = []
-    for i, e in enumerate(entries):
-        key = (e.get("MaNguoiDung"), e.get("NgayTruc"), int(e.get("CaTruc")))
-        if key in seen:
-            conflicts.append({"index": i, "entry": e})
-        else:
-            seen.add(key)
+    conn = await get_connection()
 
-    if conflicts:
+    try:
+
+        ma_chi_nhanh = "CN_" + uuid.uuid4().hex[:6].upper()
+
+        await conn.execute("""
+            INSERT INTO CHI_NHANH (
+                MaChiNhanh,
+                TenChiNhanh,
+                DiaChi,
+                SDT
+            )
+            VALUES (?, ?, ?, ?)
+        """, (
+            ma_chi_nhanh,
+            ten_chi_nhanh,
+            dia_chi,
+            sdt
+        ))
+
+        await conn.commit()
+
+        return {
+            "success": True,
+            "message": "Tạo chi nhánh thành công.",
+            "data": {
+                "MaChiNhanh": ma_chi_nhanh
+            }
+        }
+
+    except Exception as e:
+
+        await conn.rollback()
+
         return {
             "success": False,
-            "message": "Tìm thấy xung đột nội bộ trong file nhập (bác sĩ trùng ngày/ca).",
-            "data": {"conflicts": conflicts}
+            "message": str(e),
+            "data": None
         }
 
-    # If LichTruc has DB helpers, attempt atomic persistence with backup
-    has_db = all(hasattr(LichTruc, name) for name in ("find", "find_one", "insert", "delete", "update"))
+    finally:
+        await conn.close()
 
-    if not has_db:
-        # Return validated plan so caller can persist
+async def create_service(
+    ten_dich_vu: str,
+    chuyen_khoa: str,
+    loai_dich_vu: str,
+    gia_goc: int
+):
+
+    if not ten_dich_vu:
         return {
-            "success": True,
-            "message": "Dữ liệu hợp lệ. Lưu ý: lớp `LichTruc` không có phương thức DB - gọi persistence layer để lưu.",
-            "data": {"planned_count": len(entries), "entries": entries}
+            "success": False,
+            "message": "Thiếu tên dịch vụ.",
+            "data": None
         }
 
-    # DB-backed flow
+    VALID_SERVICE_TYPES = ["KhamLamSang", "XetNghiem", "DieuTri"]
+
+    if loai_dich_vu not in VALID_SERVICE_TYPES:
+        return {
+            "success": False,
+            "message": "Loại dịch vụ không hợp lệ.",
+            "data": None
+        }
+
+    if gia_goc < 0:
+        return {
+            "success": False,
+            "message": "Giá dịch vụ không được âm.",
+            "data": None
+        }
+
+    conn = await get_connection()
+
     try:
-        # fetch existing records for the month & branch as backup
-        # This code assumes LichTruc.find can accept a filter; adapt to project's ORM as needed
-        month_prefix = Thang  # expecting format YYYY-MM or similar used by NgayTruc startswith
-        existing_cursor = await LichTruc.find((LichTruc.MaChiNhanh == MaChiNhanh) & (LichTruc.NgayTruc.startswith(month_prefix)))
-        existing = [r async for r in existing_cursor]
 
-        # Delete existing month records
-        deleted = []
-        for r in existing:
-            await r.delete()
-            deleted.append(r)
+        ma_dich_vu = "DV_" + uuid.uuid4().hex[:6].upper()
 
-        # Insert new entries
-        inserted = []
-        for e in entries:
-            obj = LichTruc.from_dict({
-                "MaLichTruc": e.get("MaLichTruc") or f"LT_{e.get('MaNguoiDung')}_{e.get('NgayTruc')}_{e.get('CaTruc')}",
-                "MaNguoiDung": e.get("MaNguoiDung"),
-                "VaiTro": e.get("VaiTro"),
-                "MaChiNhanh": e.get("MaChiNhanh") or MaChiNhanh,
-                "NgayTruc": e.get("NgayTruc"),
-                "CaTruc": int(e.get("CaTruc")),
-            })
-            await obj.insert()
-            inserted.append(obj)
+        await conn.execute("""
+            INSERT INTO DICH_VU (
+                MaDichVu,
+                TenDichVu,
+                ChuyenKhoa,
+                LoaiDichVu,
+                GiaGoc
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            ma_dich_vu,
+            ten_dich_vu,
+            chuyen_khoa,
+            loai_dich_vu,
+            gia_goc
+        ))
+
+        await conn.commit()
 
         return {
             "success": True,
-            "message": "Cập nhật lịch trực tháng thành công",
-            "data": {"inserted": inserted}
+            "message": "Tạo dịch vụ thành công.",
+            "data": {
+                "MaDichVu": ma_dich_vu
+            }
         }
 
-    except Exception as ex:
-        # attempt rollback when possible
-        try:
-            # remove any partially inserted
-            if 'inserted' in locals():
-                for ins in inserted:
-                    try:
-                        await ins.delete()
-                    except Exception:
-                        pass
+    except Exception as e:
 
-            # restore backups
-            if 'deleted' in locals():
-                for old in deleted:
-                    try:
-                        await old.insert()
-                    except Exception:
-                        pass
-        finally:
+        await conn.rollback()
+
+        return {
+            "success": False,
+            "message": str(e),
+            "data": None
+        }
+
+    finally:
+        await conn.close()
+
+
+async def create_doctor_schedule(
+    ma_bac_si: str,
+    ma_chi_nhanh: str,
+    ngay_truc: str,
+    ca_truc: int
+):
+
+    conn = await get_connection()
+
+    try:
+
+        # check doctor exists
+        cursor = await conn.execute("""
+            SELECT MaBacSi
+            FROM BAC_SI
+            WHERE MaBacSi = ?
+        """, (ma_bac_si,))
+
+        bac_si = await cursor.fetchone()
+
+        if not bac_si:
             return {
                 "success": False,
-                "message": f"Lưu lịch trực thất bại: {ex}",
+                "message": "Bác sĩ không tồn tại.",
                 "data": None
             }
 
+        # check duplicate schedule
+        cursor = await conn.execute("""
+            SELECT MaLichTruc
+            FROM LICH_TRUC
+            WHERE MaBacSi = ?
+              AND NgayTruc = ?
+              AND CaTruc = ?
+        """, (ma_bac_si, ngay_truc, ca_truc))
 
-        
-async def notify_error_for_patient(
-    MaBenhNhan: str,
-    message: str
+        existed = await cursor.fetchone()
+
+        if existed:
+            return {
+                "success": False,
+                "message": "Lịch trực đã tồn tại.",
+                "data": None
+            }
+
+        ma_lich_truc = "LT_" + uuid.uuid4().hex[:6].upper()
+
+        await conn.execute("""
+            INSERT INTO LICH_TRUC (
+                MaLichTruc,
+                MaBacSi,
+                MaChiNhanh,
+                NgayTruc,
+                CaTruc
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            ma_lich_truc,
+            ma_bac_si,
+            ma_chi_nhanh,
+            ngay_truc,
+            ca_truc
+        ))
+
+        await conn.commit()
+
+        return {
+            "success": True,
+            "message": "Tạo lịch trực thành công.",
+            "data": {
+                "MaLichTruc": ma_lich_truc
+            }
+        }
+
+    except Exception as e:
+
+        await conn.rollback()
+
+        return {
+            "success": False,
+            "message": str(e),
+            "data": None
+        }
+
+    finally:
+        await conn.close()
+
+
+async def get_report(
+    start_date: str,
+    end_date: str
 ):
 
-    benh_nhan = await BenhNhan.find_one(
-        BenhNhan.MaBenhNhan == MaBenhNhan
-    )
+    conn = await get_connection()
 
-    if not benh_nhan:
+    try:
+
+        # TOTAL VISITS
+        cursor = await conn.execute("""
+            SELECT COUNT(*) as total
+            FROM LICH_HEN
+            WHERE NgayKham BETWEEN ? AND ?
+        """, (start_date, end_date))
+
+        total_row = await cursor.fetchone()
+
+        # BY BRANCH
+        cursor = await conn.execute("""
+            SELECT
+                CN.TenChiNhanh AS TenChiNhanh,
+                COUNT(*) AS SoLuotKham
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CHDV
+                ON LH.MaCauHinh = CHDV.MaCauHinh
+            JOIN CHI_NHANH CN
+                ON CN.MaChiNhanh = CHDV.MaChiNhanh
+            WHERE LH.NgayKham BETWEEN ? AND ?
+            GROUP BY CN.MaChiNhanh
+        """, (start_date, end_date))
+
+        branch_rows = await cursor.fetchall()
+
+        # BY SPECIALTY
+        cursor = await conn.execute("""
+            SELECT
+                DV.ChuyenKhoa AS ChuyenKhoa,
+                COUNT(*) AS SoLuotKham
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CHDV
+                ON LH.MaCauHinh = CHDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON DV.MaDichVu = CHDV.MaDichVu
+            WHERE LH.NgayKham BETWEEN ? AND ?
+            GROUP BY DV.ChuyenKhoa
+        """, (start_date, end_date))
+
+        specialty_rows = await cursor.fetchall()
+
+        # TOP SERVICE
+        cursor = await conn.execute("""
+            SELECT
+                DV.TenDichVu,
+                COUNT(*) AS SoLan
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CHDV
+                ON LH.MaCauHinh = CHDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON DV.MaDichVu = CHDV.MaDichVu
+            WHERE LH.NgayKham BETWEEN ? AND ?
+            GROUP BY DV.MaDichVu
+            ORDER BY SoLan DESC
+            LIMIT 1
+        """, (start_date, end_date))
+
+        top_service = await cursor.fetchone()
+
+        return {
+            "success": True,
+            "message": "Lấy báo cáo thành công.",
+            "data": {
+                "TongLuotKham": total_row["total"] if total_row else 0,
+                "TheoChiNhanh": [dict(row) for row in branch_rows],
+                "TheoChuyenKhoa": [dict(row) for row in specialty_rows],
+                "DichVuPhoBienNhat": dict(top_service) if top_service else None
+            }
+        }
+
+    except Exception as e:
+
         return {
             "success": False,
-            "message": "Bệnh nhân không tồn tại.",
+            "message": str(e),
             "data": None
         }
 
-    # Giả lập gửi notification
-    print(f"""
-    NOTIFICATION TO: {benh_nhan.HoTen}
-    MESSAGE: {message}
-    """)
-
-    return {
-        "success": True,
-        "message": f"Đã gửi thông báo cho bệnh nhân {MaBenhNhan}",
-        "data": message
-    }
-
-async def cancel_appointment(MaLuotKham: str, reason: str):
-
-    luot_kham = await LuotKham.find_one(
-        LuotKham.MaLuotKham == MaLuotKham
-    )
-
-    if not luot_kham:
-
-        return {
-            "success": False,
-            "message": "Lượt khám không tồn tại.",
-            "data": None
-        }
-    lich_hen = await DangKyKham.find_one(
-        DangKyKham.MaLichHen == luot_kham.MaLichHen
-    )
-
-    if not lich_hen:
-
-        return {
-            "success": False,
-            "message": "Lịch hẹn không tồn tại.",
-            "data": None
-        }
-
-    ma_benh_nhan = lich_hen.MaBenhAn
-    
-    await luot_kham.delete()
-
-    notify_result = await notify_error_for_patient(
-        MaBenhNhan=ma_benh_nhan,
-        message=f"""
-        Lịch khám {MaLuotKham} đã bị hủy.
-        Lý do: {reason}
-        """
-    )
-
-    return {
-        "success": True,
-        "message": f"Lượt khám {MaLuotKham} đã được hủy.",
-        "notification": notify_result
-    }
-    
-    
-async def get_all_luot_kham():
-    luot_kham_cursor = LuotKham.find()
-    luot_kham_list = [lk async for lk in luot_kham_cursor]
-
-    ma_bac_si_list = list(set([
-        lk.MaBacSi
-        for lk in luot_kham_list
-    ]))
-
-    bac_si_list = await BacSi.find(
-        BacSi.MaBacSi.in_(ma_bac_si_list)
-    ).to_list()
-
-    bac_si_dict = {
-        bs.MaBacSi: bs
-        for bs in bac_si_list
-    }
-
-    ma_lich_hen_list = list(set([
-        lk.MaLichHen
-        for lk in luot_kham_list
-    ]))
-
-    lich_hen_list = await DangKyKham.find(
-        DangKyKham.MaLichHen.in_(ma_lich_hen_list)
-    ).to_list()
-
-    lich_hen_dict = {
-        lh.MaLichHen: lh
-        for lh in lich_hen_list
-    }
-
-    ma_benh_nhan_list = list(set([
-        lh.MaBenhAn
-        for lh in lich_hen_list
-    ]))
-
-    benh_nhan_list = await BenhNhan.find(
-        BenhNhan.MaBenhNhan.in_(ma_benh_nhan_list)
-    ).to_list()
-
-    benh_nhan_dict = {
-        bn.MaBenhNhan: bn
-        for bn in benh_nhan_list
-    }
-
-    result = []
-
-    for lk in luot_kham_list:
-
-        bac_si = bac_si_dict.get(lk.MaBacSi)
-
-        lich_hen = lich_hen_dict.get(lk.MaLichHen)
-
-        benh_nhan = None
-
-        if lich_hen:
-            benh_nhan = benh_nhan_dict.get(
-                lich_hen.MaBenhAn
-            )
-
-        result.append({
-            "MaLuotKham": lk.MaLuotKham,
-
-            "NgayKham":
-                lich_hen.NgayKham
-                if lich_hen else None,
-
-            "TenBacSi":
-                bac_si.HoTen
-                if bac_si else None,
-
-            "TenBenhNhan":
-                benh_nhan.HoTen
-                if benh_nhan else None
-        })
-
-    return {
-        "success": True,
-        "message": "Lấy danh sách lượt khám thành công",
-        "data": result
-    }
-async def get_all_lich_truc():
-    lich_truc_cursor = await LichTruc.find()
-    lich_truc_list = [lt async for lt in lich_truc_cursor]
-    return {
-        "success": True,
-        "message": "Lấy danh sách lịch trực thành công",
-        "data": lich_truc_list
-    }
-
-async def get_all_lich_dieu_tri():
-    lich_dieu_tri_cursor = await LichTrinhDieuTri.find()
-    lich_dieu_tri_list = [ldt async for ldt in lich_dieu_tri_cursor]
-    return {
-        "success": True,
-        "message": "Lấy danh sách lịch điều trị thành công",
-        "data": lich_dieu_tri_list
-    }
-
-async def search_luot_kham(
-    MaLuotKham: str = None,
-    NgayKham: str = None,
-    TenBacSi: str = None,
-    TenBenhNhan: str = None
-):
-
-    luot_kham_list = await LuotKham.find().to_list()
-
-    ma_bac_si_list = list(set([
-        lk.MaBacSi
-        for lk in luot_kham_list
-    ]))
-
-    ma_lich_hen_list = list(set([
-        lk.MaLichHen
-        for lk in luot_kham_list
-    ]))
-
-    bac_si_list = await BacSi.find(
-        BacSi.MaBacSi.in_(ma_bac_si_list)
-    ).to_list()
-
-    lich_hen_list = await DangKyKham.find(
-        DangKyKham.MaLichHen.in_(ma_lich_hen_list)
-    ).to_list()
-
-    bac_si_dict = {
-        bs.MaBacSi: bs
-        for bs in bac_si_list
-    }
-
-    lich_hen_dict = {
-        lh.MaLichHen: lh
-        for lh in lich_hen_list
-    }
-
-    ma_benh_nhan_list = list(set([
-        lh.MaBenhAn
-        for lh in lich_hen_list
-    ]))
-
-    benh_nhan_list = await BenhNhan.find(
-        BenhNhan.MaBenhNhan.in_(ma_benh_nhan_list)
-    ).to_list()
-
-    benh_nhan_dict = {
-        bn.MaBenhNhan: bn
-        for bn in benh_nhan_list
-    }
-
-    result = []
-
-    for lk in luot_kham_list:
-
-        bac_si = bac_si_dict.get(lk.MaBacSi)
-
-        lich_hen = lich_hen_dict.get(lk.MaLichHen)
-
-        benh_nhan = None
-
-        if lich_hen:
-            benh_nhan = benh_nhan_dict.get(
-                lich_hen.MaBenhAn
-            )
-
-        item = {
-            "MaLuotKham": lk.MaLuotKham,
-
-            "NgayKham":
-                lich_hen.NgayKham
-                if lich_hen else None,
-
-            "TenBacSi":
-                bac_si.HoTen
-                if bac_si else None,
-
-            "TenBenhNhan":
-                benh_nhan.HoTen
-                if benh_nhan else None
-        }
-
-        if MaLuotKham:
-
-            if MaLuotKham.lower() not in item["MaLuotKham"].lower():
-                continue
-
-        if NgayKham:
-
-            if not item["NgayKham"] or NgayKham not in item["NgayKham"]:
-                continue
-
-        if TenBacSi:
-
-            if (
-                not item["TenBacSi"]
-                or TenBacSi.lower()
-                not in item["TenBacSi"].lower()
-            ):
-                continue
-
-        if TenBenhNhan:
-
-            if (
-                not item["TenBenhNhan"]
-                or TenBenhNhan.lower()
-                not in item["TenBenhNhan"].lower()
-            ):
-                continue
-
-        result.append(item)
-
-    return {
-        "success": True,
-        "message": "Tìm kiếm lượt khám thành công",
-        "total": len(result),
-        "data": result
-    }
+    finally:
+        await conn.close()
