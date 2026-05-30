@@ -5,14 +5,30 @@ from check_db import get_connection
 
 
 async def register_account(data: dict):
+    conn = None
     try:
         conn = await get_connection()
+        required_fields = ["hoten", "cccd", "ngaysinh", "gioitinh", "sdt", "matkhau", "diachi"]
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return {
+                "success": False,
+                "message": f"Thiếu thông tin bắt buộc: {', '.join(missing_fields)}.",
+                "data": None,
+            }
+
         # Extension 6a: Kiểm tra số điện thoại (tài khoản) đã tồn tại
         cursor = await conn.execute(
             "SELECT SDT FROM BENH_NHAN WHERE SDT = ?", (data['sdt'],)
         )
         if await cursor.fetchone():
             return {"success": False, "message": "Số điện thoại đã được sử dụng.", "data": None}
+
+        cursor = await conn.execute(
+            "SELECT CCCD FROM BENH_NHAN WHERE CCCD = ?", (data["cccd"],)
+        )
+        if await cursor.fetchone():
+            return {"success": False, "message": "Số CCCD đã được sử dụng.", "data": None}
 
         # Khởi tạo mã bệnh án tự động
         ma_ba = f"BN_{uuid.uuid4().hex[:8].upper()}"
@@ -28,16 +44,27 @@ async def register_account(data: dict):
             ma_so_bhyt = None
         
         await conn.execute("""
-            INSERT INTO BENH_NHAN (MaBenhAn, HoTen, NgaySinh, GioiTinh, SDT, MatKhau, DiaChi, MaSoBHYT, KyTuDauBHYT)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (ma_ba, data['hoten'], data['ngaysinh'], data['gioitinh'], data['sdt'], 
-                data['matkhau'], data['diachi'], ma_so_bhyt, ky_tu_bhyt))
+            INSERT INTO BENH_NHAN (MaBenhAn, HoTen, CCCD, NgaySinh, GioiTinh, SDT, MatKhau, DiaChi, MaSoBHYT, KyTuDauBHYT)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ma_ba,
+            data['hoten'],
+            data['cccd'],
+            data['ngaysinh'],
+            data['gioitinh'],
+            data['sdt'],
+            data['matkhau'],
+            data['diachi'],
+            ma_so_bhyt,
+            ky_tu_bhyt,
+        ))
         
         await conn.commit()
-        return {"success": True, "message": "Đăng ký thành công", "data": data}
+        return {"success": True, "message": "Đăng ký thành công", "data": {**data, "MaBenhAn": ma_ba}}
         
     except Exception as e:
-        await conn.rollback() # Extension 8a: Rollback khi lỗi
+        if conn:
+            await conn.rollback() # Extension 8a: Rollback khi lỗi
         return {"success": False, "message": f"Lỗi hệ thống: {str(e)}", "data": None}
 
 async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham: str):
@@ -82,7 +109,14 @@ async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham:
         
     return {"success": True, "message": "Tìm thấy suất khám phù hợp.", "data": available_slots}
 
-async def book_and_pay(ma_benh_an: str, ma_cau_hinh: str, ngay_kham: str, ca_kham: int):
+async def book_and_pay(
+    ma_benh_an: str,
+    ma_cau_hinh: str,
+    ngay_kham: str,
+    ca_kham: int,
+    ma_bac_si: str,
+):
+    conn = None
     try:
         conn = await get_connection()
         # 1. Lấy thông tin BHYT của bệnh nhân
@@ -93,6 +127,8 @@ async def book_and_pay(ma_benh_an: str, ma_cau_hinh: str, ngay_kham: str, ca_kha
             WHERE BN.MaBenhAn = ?
         """, (ma_benh_an,))
         bn_info = await cursor.fetchone()
+        if not bn_info:
+            return {"success": False, "message": "Không tìm thấy bệnh nhân.", "data": None}
         
         # 2. Lấy giá gốc dịch vụ
         cursor = await conn.execute("""
@@ -102,6 +138,8 @@ async def book_and_pay(ma_benh_an: str, ma_cau_hinh: str, ngay_kham: str, ca_kha
             WHERE CNDV.MaCauHinh = ?
         """, (ma_cau_hinh,))
         dv_info = await cursor.fetchone()
+        if not dv_info:
+            return {"success": False, "message": "Không tìm thấy cấu hình dịch vụ.", "data": None}
         
         # Tính Giá Cuối (Main Success Scenario)
         ty_le = bn_info['TyLeHuong'] if bn_info and bn_info['TyLeHuong'] else 0.0
@@ -116,15 +154,45 @@ async def book_and_pay(ma_benh_an: str, ma_cau_hinh: str, ngay_kham: str, ca_kha
         payment_token = f"TOK_{uuid.uuid4().hex[:10]}"
         
         await conn.execute("""
-            INSERT INTO LICH_HEN (MaLichHen, MaBenhAn, MaCauHinh, NgayKham, CaKham, STT, PaymentToken, GiaCuoi, TrangThai)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DaXacNhan')
-        """, (ma_lich_hen, ma_benh_an, ma_cau_hinh, ngay_kham, ca_kham, stt, payment_token, gia_cuoi))
+            INSERT INTO LICH_HEN (
+                MaLichHen,
+                MaBenhAn,
+                MaCauHinh,
+                NgayKham,
+                CaKham,
+                STT,
+                PaymentToken,
+                GiaCuoi,
+                TrangThai,
+                MaBacSi
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Đã xác nhận', ?)
+        """, (
+            ma_lich_hen,
+            ma_benh_an,
+            ma_cau_hinh,
+            ngay_kham,
+            ca_kham,
+            stt,
+            payment_token,
+            gia_cuoi,
+            ma_bac_si,
+        ))
         
         await conn.commit()
-        return {"success": True, "message": "Đặt lịch và thanh toán thành công", "data": {"MaLichHen": ma_lich_hen}}
+        return {
+            "success": True,
+            "message": "Đặt lịch và thanh toán thành công",
+            "data": {
+                "MaLichHen": ma_lich_hen,
+                "MaBacSi": ma_bac_si,
+                "PaymentToken": payment_token,
+            },
+        }
         
     except Exception as e:
-        await conn.rollback() # Extension 12a
+        if conn:
+            await conn.rollback() # Extension 12a
         return {"success": False, "message": "Lỗi tạo lịch khám", "data": None}
 
 async def book_treatment(ma_lich_trinh: str, ma_benh_an: str, ngay: str, ca: int):
@@ -182,7 +250,7 @@ async def get_medical_history(ma_benh_an: str):
         LEFT JOIN BENH B ON LK.MaBenh = B.MaBenh
         WHERE LH.MaBenhAn = ?
         ORDER BY LH.NgayKham DESC
-    """, (ma_benh_an))
+    """, (ma_benh_an,))
     
     luot_kham_list = [dict(row) for row in await cursor.fetchall()]
     
@@ -212,4 +280,3 @@ async def get_medical_history(ma_benh_an: str):
         lk['XetNghiem'] = [dict(x) for x in await cur_xn.fetchall()]
 
     return {"success": True, "message": "Lấy lịch sử khám thành công.", "data": luot_kham_list}
-

@@ -16,25 +16,30 @@ class ResponseModel(BaseModel):
     data: Optional[Any] = None
 
 @router.get("/pending-tests", response_model=ResponseModel)
-async def pending_tests():
-    return await get_pending_tests()
+async def pending_tests(ma_chi_nhanh: str):
+    return await get_pending_tests(ma_chi_nhanh)
 
 @router.post("/accept-test", response_model=ResponseModel)
 async def accept_test(
-    MaChiTietXN: str = Form(...)
+    MaChiTietXN: str = Form(...),
+    MaChiNhanh: str = Form(...),
 ):
-    return await accept_test_request(MaChiTietXN)
+    return await accept_test_request(MaChiTietXN, MaChiNhanh)
 
 @router.post("/update-result", response_model=ResponseModel)
 async def update_result(
     MaChiTietXN: str = Form(...),
     KetQuaXetNghiem: str = Form(...),
+    MaXNV: str = Form(...),
+    MaChiNhanh: str = Form(...),
     GhiChu: Optional[str] = Form(None)
 ):
     return await update_test_result(
         MaChiTietXN,
         KetQuaXetNghiem,
-        GhiChu
+        GhiChu,
+        MaXNV,
+        MaChiNhanh,
     )
 
 @router.get("/test-detail", response_model=ResponseModel)

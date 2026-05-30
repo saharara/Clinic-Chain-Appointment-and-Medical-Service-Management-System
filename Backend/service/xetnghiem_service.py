@@ -1,7 +1,8 @@
 from check_db import get_connection
 import sqlite3
 
-async def get_pending_tests():
+
+async def get_pending_tests(ma_chi_nhanh: str):
 
     conn = await get_connection()
 
@@ -13,22 +14,39 @@ async def get_pending_tests():
                 CTXN.MaLuotKham,
                 CTXN.MaDichVu,
                 DV.TenDichVu,
+                DV.GiaGoc,
+                CAST(DV.GiaGoc * COALESCE(BHYT.TyLeHuong, 0) AS INTEGER) AS BHYTGiamTru,
+                CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS INTEGER) AS GiaCuoiThucTra,
                 CTXN.TrangThaiXetNghiem,
+                CTXN.PaymentToken,
+                CTXN.GiaCuoi,
                 BN.MaBenhAn,
                 BN.HoTen,
-                BS.MaBacSi,
-                BS.HoTen AS TenBacSi
+                LH.MaLichHen,
+                LH.MaBacSi,
+                CNDV.MaChiNhanh,
+                BS.HoTen AS TenBacSi,
+                BHYT.TyLeHuong
             FROM CHI_TIET_XET_NGHIEM CTXN
             JOIN LUOT_KHAM LK
                 ON CTXN.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
             JOIN BENH_NHAN BN
-                ON LK.MaLichHen = BN.MaBenhAn
+                ON LH.MaBenhAn = BN.MaBenhAn
+            LEFT JOIN DANH_MUC_BHYT BHYT
+                ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
             JOIN DICH_VU DV
                 ON CTXN.MaDichVu = DV.MaDichVu
             JOIN BAC_SI BS
-                ON LK.MaLichHen = LK.MaLichHen
-            WHERE CTXN.TrangThaiXetNghiem = 'ChuaThucHien'
-        """)
+                ON LK.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE
+                CTXN.TrangThaiXetNghiem = 'Chưa thực hiện'
+                AND CNDV.MaChiNhanh = ?
+            ORDER BY LH.NgayKham, LH.CaKham, BN.HoTen
+        """, (ma_chi_nhanh,))
 
         rows = await cursor.fetchall()
 
@@ -48,18 +66,22 @@ async def get_pending_tests():
     finally:
         await conn.close()
 
-async def accept_test_request(
-    ma_chi_tiet_xn: str
-):
+async def accept_test_request(ma_chi_tiet_xn: str, ma_chi_nhanh: str):
 
     conn = await get_connection()
 
     try:
 
         cursor = await conn.execute("""
-            SELECT *
-            FROM CHI_TIET_XET_NGHIEM
-            WHERE MaChiTietXN = ?
+            SELECT CTXN.*, CNDV.MaChiNhanh
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN LUOT_KHAM LK
+                ON CTXN.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE CTXN.MaChiTietXN = ?
         """, (ma_chi_tiet_xn,))
 
         req = await cursor.fetchone()
@@ -71,27 +93,26 @@ async def accept_test_request(
                 "data": None
             }
 
-        if req["TrangThaiXetNghiem"] != "ChuaThucHien":
+        if req["MaChiNhanh"] != ma_chi_nhanh:
+            return {
+                "success": False,
+                "message": "Xét nghiệm viên không có quyền nhận ca của chi nhánh khác.",
+                "data": None
+            }
+
+        if req["TrangThaiXetNghiem"] != "Chưa thực hiện":
             return {
                 "success": False,
                 "message": "Yêu cầu không hợp lệ.",
                 "data": None
             }
 
-        await conn.execute("""
-            UPDATE CHI_TIET_XET_NGHIEM
-            SET TrangThaiXetNghiệm = 'DangThucHien'
-            WHERE MaChiTietXN = ?
-        """, (ma_chi_tiet_xn,))
-
-        await conn.commit()
-
         return {
             "success": True,
             "message": "Đã nhận yêu cầu xét nghiệm.",
             "data": {
                 "MaChiTietXN": ma_chi_tiet_xn,
-                "TrangThaiMoi": "DangThucHien"
+                "TrangThaiMoi": "Chưa thực hiện"
             }
         }
 
@@ -111,7 +132,9 @@ async def accept_test_request(
 async def update_test_result(
     ma_chi_tiet_xn: str,
     ket_qua: str,
-    ghi_chu: str = None
+    ghi_chu: str = None,
+    ma_xnv: str = None,
+    ma_chi_nhanh: str = None,
 ):
 
     if not ket_qua:
@@ -126,9 +149,15 @@ async def update_test_result(
     try:
 
         cursor = await conn.execute("""
-            SELECT *
-            FROM CHI_TIET_XET_NGHIEM
-            WHERE MaChiTietXN = ?
+            SELECT CTXN.*, CNDV.MaChiNhanh
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN LUOT_KHAM LK
+                ON CTXN.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE CTXN.MaChiTietXN = ?
         """, (ma_chi_tiet_xn,))
 
         req = await cursor.fetchone()
@@ -140,7 +169,14 @@ async def update_test_result(
                 "data": None
             }
 
-        if req["TrangThaiXetNghiem"] != "DangThucHien":
+        if ma_chi_nhanh and req["MaChiNhanh"] != ma_chi_nhanh:
+            return {
+                "success": False,
+                "message": "Xét nghiệm viên không có quyền trả kết quả ca của chi nhánh khác.",
+                "data": None
+            }
+
+        if req["TrangThaiXetNghiem"] not in ("Chưa thực hiện", "Đã có kết quả"):
             return {
                 "success": False,
                 "message": "Trạng thái không hợp lệ.",
@@ -150,10 +186,12 @@ async def update_test_result(
         await conn.execute("""
             UPDATE CHI_TIET_XET_NGHIEM
             SET KetQuaXetNghiem = ?,
-                TrangThaiXetNghiem = 'DaCoKetQua'
+                TrangThaiXetNghiem = 'Đã có kết quả',
+                MaXNV = COALESCE(?, MaXNV)
             WHERE MaChiTietXN = ?
         """, (
             ket_qua,
+            ma_xnv,
             ma_chi_tiet_xn
         ))
 
@@ -164,7 +202,8 @@ async def update_test_result(
             "message": "Cập nhật kết quả xét nghiệm thành công.",
             "data": {
                 "MaChiTietXN": ma_chi_tiet_xn,
-                "TrangThaiMoi": "DaCoKetQua"
+                "TrangThaiMoi": "Đã có kết quả",
+                "MaXNV": ma_xnv
             }
         }
 

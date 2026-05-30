@@ -4,18 +4,20 @@ from typing import Dict, Any
 
 @dataclass
 class LeTan:
-	MaLeTan: str
-	HoTen: str
-	SDT: str
-	MatKhau: str
+    MaLeTan: str
+    HoTen: str
+    SDT: str
+    MatKhau: str
+    MaChiNhanh: str
 
-	__tablename__ = "LE_TAN"
+    __tablename__ = "LE_TAN"
 
-	@classmethod
-	def from_dict(cls, d: Dict[str, Any]) -> "LeTan":
-		return cls(
-			MaLeTan=d.get("MaLeTan"),
-			HoTen=d.get("HoTen"),
-			SDT=d.get("SDT"),
-			MatKhau=d.get("MatKhau"),
-		)
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LeTan":
+        return cls(
+            MaLeTan=d.get("MaLeTan"),
+            HoTen=d.get("HoTen"),
+            SDT=d.get("SDT"),
+            MatKhau=d.get("MatKhau"),
+            MaChiNhanh=d.get("MaChiNhanh"),
+        )

@@ -44,17 +44,15 @@ async def login_doctor(
             "data": {
                 "MaBacSi": bacsi.MaBacSi,
                 "HoTen": bacsi.HoTen,
-                "ChuyenKhoa": bacsi.ChuyenKhoa
+                "ChuyenKhoa": bacsi.ChuyenKhoa,
+                "SDT": bacsi.SDT,
             }
         }
 
     finally:
         await conn.close()
 
-async def login_patient(
-    MaBenhAn: str,
-    password: str
-):
+async def login_patient(cccd: str, password: str):
 
     conn = await get_connection()
 
@@ -63,8 +61,8 @@ async def login_patient(
         cursor = await conn.execute("""
             SELECT *
             FROM BENH_NHAN
-            WHERE MaBenhAn = ?
-        """, (MaBenhAn,))
+            WHERE CCCD = ?
+        """, (cccd,))
 
         row = await cursor.fetchone()
 
@@ -89,7 +87,14 @@ async def login_patient(
             "message": "Đăng nhập thành công",
             "data": {
                 "MaBenhAn": benhnhan.MaBenhAn,
-                "HoTen": benhnhan.HoTen
+                "HoTen": benhnhan.HoTen,
+                "CCCD": benhnhan.CCCD,
+                "NgaySinh": benhnhan.NgaySinh,
+                "GioiTinh": benhnhan.GioiTinh,
+                "SDT": benhnhan.SDT,
+                "DiaChi": benhnhan.DiaChi,
+                "MaSoBHYT": benhnhan.MaSoBHYT,
+                "KyTuDauBHYT": benhnhan.KyTuDauBHYT,
             }
         }
 
@@ -135,7 +140,9 @@ async def login_le_tan(
             "message": "Đăng nhập thành công",
             "data": {
                 "MaLeTan": letan.MaLeTan,
-                "HoTen": letan.HoTen
+                "HoTen": letan.HoTen,
+                "SDT": letan.SDT,
+                "MaChiNhanh": letan.MaChiNhanh,
             }
         }
 
@@ -181,7 +188,9 @@ async def login_xet_nghiemVien(
             "message": "Đăng nhập thành công",
             "data": {
                 "MaXNV": xnv.MaXNV,
-                "HoTen": xnv.HoTen
+                "HoTen": xnv.HoTen,
+                "SDT": xnv.SDT,
+                "MaChiNhanh": xnv.MaChiNhanh,
             }
         }
 
@@ -331,7 +340,8 @@ async def create_xnv_account(
     name: str,
     MaXNV: str,
     sdt: str,
-    password: str
+    password: str,
+    ma_chi_nhanh: str
 ):
 
     conn = await get_connection()
@@ -358,14 +368,16 @@ async def create_xnv_account(
                 MaXNV,
                 HoTen,
                 SDT,
-                MatKhau
+                MatKhau,
+                MaChiNhanh
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
         """, (
             MaXNV,
             name,
             sdt,
-            password
+            password,
+            ma_chi_nhanh
         ))
 
         await conn.commit()
@@ -374,7 +386,8 @@ async def create_xnv_account(
             "success": True,
             "message": "Tạo tài khoản xét nghiệm viên thành công",
             "data": {
-                "MaXNV": MaXNV
+                "MaXNV": MaXNV,
+                "MaChiNhanh": ma_chi_nhanh
             }
         }
 

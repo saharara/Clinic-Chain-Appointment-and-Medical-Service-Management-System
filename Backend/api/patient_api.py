@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional, Any, List
+from typing import Optional, Any
 from service.patient_service import *
 
 router = APIRouter()
@@ -11,26 +11,38 @@ class ResponseModel(BaseModel):
     data: Optional[Any] = None
 
 
+class BookAndPayRequest(BaseModel):
+    ma_benh_an: str
+    ma_cau_hinh: str
+    ngay_kham: str
+    ca_kham: int
+    ma_bac_si: str
+
+
 @router.post("/register-account", response_model=ResponseModel)
-async def register_account_api(
-    hoten: str = Form(...),
-    ngaysinh: str = Form(...),
-    gioitinh: str = Form(...),
-    sdt: str = Form(...),
-    matkhau: str = Form(...),
-    diachi: str = Form(...),
-    ma_so_bhyt: Optional[str] = Form(None),
-    ky_tu_bhyt: Optional[str] = Form(None)
-):
+async def register_account_api(request: Request):
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = await request.json()
+    else:
+        form = await request.form()
+        body = dict(form)
+
+    cccd = str(body.get("cccd", "")).strip()
+    if not cccd.isdigit() or len(cccd) != 12:
+        raise HTTPException(status_code=400, detail="Số CCCD không hợp lệ")
+
     return await register_account({
-        "hoten": hoten,
-        "ngaysinh": ngaysinh,
-        "gioitinh": gioitinh,
-        "sdt": sdt,
-        "matkhau": matkhau,
-        "diachi": diachi,
-        "ma_so_bhyt": ma_so_bhyt,
-        "ky_tu_bhyt": ky_tu_bhyt,
+        "hoten": body.get("hoten"),
+        "cccd": cccd,
+        "ngaysinh": body.get("ngaysinh"),
+        "gioitinh": body.get("gioitinh"),
+        "sdt": body.get("sdt"),
+        "matkhau": body.get("matkhau"),
+        "diachi": body.get("diachi"),
+        "ma_so_bhyt": body.get("ma_so_bhyt"),
+        "ky_tu_bhyt": body.get("ky_tu_bhyt"),
     })
 
 
@@ -44,13 +56,14 @@ async def search_available_slots_api(
 
 
 @router.post("/book-and-pay", response_model=ResponseModel)
-async def book_and_pay_api(
-    ma_benh_an: str = Form(...),
-    ma_cau_hinh: str = Form(...),
-    ngay_kham: str = Form(...),
-    ca_kham: int = Form(...)
-):
-    return await book_and_pay(ma_benh_an, ma_cau_hinh, ngay_kham, ca_kham)
+async def book_and_pay_api(request: BookAndPayRequest):
+    return await book_and_pay(
+        request.ma_benh_an,
+        request.ma_cau_hinh,
+        request.ngay_kham,
+        request.ca_kham,
+        request.ma_bac_si,
+    )
 
 
 @router.post("/book-treatment", response_model=ResponseModel)

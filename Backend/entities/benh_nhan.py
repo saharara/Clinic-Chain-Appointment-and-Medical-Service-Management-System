@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 class BenhNhan:
 	MaBenhAn: str
 	HoTen: str
+	CCCD: str
 	NgaySinh: Optional[str]
 	GioiTinh: Optional[str]
 	SDT: Optional[str]
@@ -20,6 +21,7 @@ class BenhNhan:
 		return cls(
 			MaBenhAn=d.get("MaBenhAn"),
 			HoTen=d.get("HoTen"),
+			CCCD=d.get("CCCD") or d.get("cccd"),
 			NgaySinh=d.get("NgaySinh"),
 			GioiTinh=d.get("GioiTinh"),
 			SDT=d.get("SDT"),

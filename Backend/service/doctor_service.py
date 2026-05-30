@@ -8,6 +8,7 @@ async def get_patients_by_date(ma_bac_si: str, ngay_kham: str):
         cursor = await conn.execute("""
             SELECT 
                 LH.MaLichHen, LH.NgayKham, LH.CaKham, LH.STT, LH.TrangThai, LH.GiaCuoi, LH.PaymentToken,
+                LH.MaBacSi,
                 BN.MaBenhAn, BN.HoTen AS TenBenhNhan, BN.GioiTinh, BN.NgaySinh, BN.SDT AS SDTBenhNhan, BN.DiaChi, BN.MaSoBHYT,
                 BHYT.KyTuDauBHYT, BHYT.DoiTuongChinhSach, BHYT.TyLeHuong,
                 DV.MaDichVu, DV.TenDichVu, DV.ChuyenKhoa, DV.GiaGoc,
@@ -18,10 +19,7 @@ async def get_patients_by_date(ma_bac_si: str, ngay_kham: str):
             JOIN CHI_NHANH_DICH_VU CNDV ON LH.MaCauHinh = CNDV.MaCauHinh
             JOIN DICH_VU DV ON CNDV.MaDichVu = DV.MaDichVu
             JOIN CHI_NHANH CN ON CNDV.MaChiNhanh = CN.MaChiNhanh
-            JOIN LICH_TRUC LTR ON LTR.MaChiNhanh = CNDV.MaChiNhanh 
-                              AND LTR.NgayTruc = LH.NgayKham 
-                              AND LTR.CaTruc = LH.CaKham
-            WHERE LTR.MaBacSi = ? AND LH.NgayKham = ?
+            WHERE LH.MaBacSi = ? AND LH.NgayKham = ?
             ORDER BY LH.CaKham, LH.STT
         """, (ma_bac_si, ngay_kham))
         
@@ -35,8 +33,67 @@ async def get_patients_by_date(ma_bac_si: str, ngay_kham: str):
         await conn.close()
 
 
+async def get_doctor_queue(ma_bac_si: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT
+                LH.MaLichHen,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.TrangThai,
+                LH.GiaCuoi,
+                LH.PaymentToken,
+                LH.MaBacSi,
+                BN.MaBenhAn,
+                BN.HoTen AS TenBenhNhan,
+                BN.GioiTinh,
+                BN.NgaySinh,
+                BN.CCCD,
+                BN.SDT AS SDTBenhNhan,
+                BN.DiaChi,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                DV.ChuyenKhoa,
+                CN.MaChiNhanh,
+                CN.TenChiNhanh
+            FROM LICH_HEN LH
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            WHERE
+                LH.MaBacSi = ?
+                AND LH.TrangThai IN ('Chờ khám', 'Chờ kết luận', 'Đang khám')
+            ORDER BY LH.NgayKham, LH.CaKham, LH.STT
+            """,
+            (ma_bac_si,),
+        )
+        rows = await cursor.fetchall()
+
+        return {
+            "success": True,
+            "message": "Lấy hàng đợi bác sĩ thành công.",
+            "data": [dict(row) for row in rows],
+        }
+    finally:
+        await conn.close()
+
+
 async def update_appointment_status(ma_lich_hen: str, trang_thai: str):
-    valid_statuses = ['DangKham', 'HoanThanh', 'BoKham']
+    valid_statuses = [
+        "Chờ khám",
+        "Đang khám",
+        "Chờ kết luận",
+        "Hoàn thành",
+        "Đã hủy",
+    ]
     if trang_thai not in valid_statuses:
         return {"success": False, "message": "Trạng thái không hợp lệ.", "data": None}
 
@@ -79,6 +136,15 @@ async def save_examination_record(exam_data: dict):
         ma_lich_hen = exam_data.get('ma_lich_hen')
         is_draft = exam_data.get('is_draft', True)
         ma_benh = exam_data.get('ma_benh')
+        ma_bac_si = exam_data.get('ma_bac_si')
+        if not ma_bac_si:
+            doctor_cursor = await conn.execute(
+                "SELECT MaBacSi FROM LICH_HEN WHERE MaLichHen = ?",
+                (ma_lich_hen,),
+            )
+            doctor_row = await doctor_cursor.fetchone()
+            ma_bac_si = doctor_row["MaBacSi"] if doctor_row else None
+
         if ma_benh in ["string", "", " "] or not ma_benh:
             ma_benh = None
 
@@ -130,15 +196,22 @@ async def save_examination_record(exam_data: dict):
                 ma_luot_kham = "LK_001"
                 
             await conn.execute("""
-                INSERT INTO LUOT_KHAM (MaLuotKham, MaLichHen, TrieuChung, LoiDan, MaBenh)
-                VALUES (?, ?, ?, ?, ?)
-            """, (ma_luot_kham, ma_lich_hen, exam_data.get('trieu_chung'), exam_data.get('loi_dan'), ma_benh))
+                INSERT INTO LUOT_KHAM (MaLuotKham, MaLichHen, MaBacSi, TrieuChung, LoiDan, MaBenh)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                ma_luot_kham,
+                ma_lich_hen,
+                ma_bac_si,
+                exam_data.get('trieu_chung'),
+                exam_data.get('loi_dan'),
+                ma_benh,
+            ))
 
         for xn in xet_nghiem_hop_le:
             ma_ctxn = f"CTXN_{uuid.uuid4().hex[:6].upper()}"
             await conn.execute("""
                 INSERT INTO CHI_TIET_XET_NGHIEM (MaChiTietXN, MaLuotKham, MaDichVu, TrangThaiXetNghiem)
-                VALUES (?, ?, ?, 'ChuaThucHien')
+                VALUES (?, ?, ?, 'Chưa thực hiện')
             """, (ma_ctxn, ma_luot_kham, xn['ma_dich_vu']))
 
         for thuoc in don_thuoc_hop_le:
@@ -153,13 +226,13 @@ async def save_examination_record(exam_data: dict):
                 ma_lt = f"LTDT_{uuid.uuid4().hex[:6].upper()}"
                 await conn.execute("""
                     INSERT INTO LICH_TRINH_DIEU_TRI (MaLichTrinh, MaLuotKham, MaDichVu, BuoiSo, TrangThai)
-                    VALUES (?, ?, ?, ?, 'ChuaDatLich')
+                    VALUES (?, ?, ?, ?, 'Chưa đặt lịch')
                 """, (ma_lt, ma_luot_kham, dt['ma_dich_vu'], buoi))
 
         if not is_draft:
-            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'HoanThanh' WHERE MaLichHen = ?", (ma_lich_hen,))
+            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'Hoàn thành' WHERE MaLichHen = ?", (ma_lich_hen,))
         else:
-            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'DangKham' WHERE MaLichHen = ?", (ma_lich_hen,))
+            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'Đang khám' WHERE MaLichHen = ?", (ma_lich_hen,))
             
         await conn.commit()
         response_data = {
@@ -168,7 +241,7 @@ async def save_examination_record(exam_data: dict):
             "TrieuChung": exam_data.get('trieu_chung') or "",
             "LoiDan": exam_data.get('loi_dan') or "",
             "MaBenh": ma_benh or "",
-            "TrangThai": "DangKham" if is_draft else "HoanThanh"
+            "TrangThai": "Đang khám" if is_draft else "Hoàn thành"
         }
 
         if xet_nghiem_hop_le:

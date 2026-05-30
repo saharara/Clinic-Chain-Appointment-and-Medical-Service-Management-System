@@ -21,6 +21,7 @@ class TreatmentRequest(BaseModel):
     so_buoi: Optional[int] = None
 class ExamDataRequest(BaseModel):
     ma_lich_hen: str
+    ma_bac_si: Optional[str] = None
     ma_benh: Optional[str] = None  # Mã bệnh theo ICD-10 (ví dụ: 'J00')
     trieu_chung: str
     loi_dan: Optional[str] = None
@@ -34,6 +35,15 @@ async def get_patients(
 ):
     result = await get_patients_by_date(ma_bac_si, ngay_kham)
     return result
+
+
+@router.get("/queue", response_model=ResponseModel)
+async def get_doctor_queue_api(
+    ma_bac_si: str = Query(..., description="Mã bác sĩ đang đăng nhập")
+):
+    return await get_doctor_queue(ma_bac_si)
+
+
 @router.post("/update-appointment-status", response_model=ResponseModel)
 async def update_appointment_status_api(ma_lich_hen: str = Form(...), trang_thai: str = Form(...)):
     return await update_appointment_status(ma_lich_hen, trang_thai)
