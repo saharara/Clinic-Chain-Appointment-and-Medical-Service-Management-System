@@ -56,22 +56,15 @@ async def book_and_pay_api(
 @router.post("/book-treatment", response_model=ResponseModel)
 async def book_treatment_api(
     ma_lich_trinh: str = Form(...),
-    ma_benh_an: str = Form(...),
-    ngay: str = Form(...),
-    ca: int = Form(...)
+    ngay_thuc_hien: str = Form(...),
+    ca_kham: int = Form(...)
 ):
-    return await book_treatment(ma_lich_trinh, ma_benh_an, ngay, ca)
-
-
-@router.post("/request-refund", response_model=ResponseModel)
-async def request_refund_api(
-    ma_lich_hen: str = Form(...),
-    ma_benh_an: str = Form(...),
-    bank_info: str = Form(...)
-):
-    return await request_refund(ma_lich_hen, ma_benh_an, bank_info)
-
+    return await book_treatment(ma_lich_trinh, ngay_thuc_hien, ca_kham)
 
 @router.get("/medical-history", response_model=ResponseModel)
 async def get_medical_history_api(ma_benh_an: str):
     return await get_medical_history(ma_benh_an)
+
+@router.get("/notifications", response_model=ResponseModel)
+async def get_notifications_api(ma_benh_an: str):
+    return await receive_notification(ma_benh_an)

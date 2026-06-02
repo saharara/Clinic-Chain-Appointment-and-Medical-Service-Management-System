@@ -7,7 +7,22 @@ from api.letan_api import router as letan_router
 from api.patient_api import router as patient_router
 from api.xnv_api import router as xnv_router
 from api.doctor_api import router as doctor_router
+from database import get_connection
+
 app = FastAPI(title="Clinic Chain Appointment & Medical Service API")
+
+@app.on_event("startup")
+async def startup():
+    try:
+        conn = await get_connection()
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT 1")
+            result = await cursor.fetchone()
+            print(f"Database connected successfully: {result}")
+        conn.close()
+    except Exception as e:
+        print(f"✗ Database connection failed: {e}")
+        raise
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,4 +49,5 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
 

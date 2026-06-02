@@ -1,6 +1,7 @@
 import datetime
 
-from check_db import get_connection
+from database import get_connection
+from aiomysql import DictCursor
 
 
 async def search_checkin_appointment(
@@ -12,47 +13,48 @@ async def search_checkin_appointment(
     try:
 
         # tìm theo MaLichHen / SDT / MaBenhAn / HoTen
-        cursor = await conn.execute("""
-            SELECT
-                LH.MaLichHen,
-                BN.MaBenhAn,
-                BN.HoTen,
-                BN.SDT,
-                LH.NgayKham,
-                LH.CaKham,
-                LH.TrangThai
-            FROM LICH_HEN LH
-            JOIN BENH_NHAN BN
-                ON LH.MaBenhAn = BN.MaBenhAn
-            WHERE
-                LH.MaLichHen = ?
-                OR BN.SDT = ?
-                OR BN.MaBenhAn = ?
-                 bbOR BN.HoTen LIKE ?
-        """, (
-            keyword,
-            keyword,
-            keyword,
-            f"%{keyword}%"
-        ))
+        async with conn.cursor(DictCursor) as cursor:
+            await cursor.execute("""
+                SELECT
+                    LH.MaLichHen,
+                    BN.MaBenhAn,
+                    BN.HoTen,
+                    BN.SDT,
+                    LH.NgayKham,
+                    LH.CaKham,
+                    LH.TrangThai
+                FROM LICH_HEN LH
+                JOIN BENH_NHAN BN
+                    ON LH.MaBenhAn = BN.MaBenhAn
+                WHERE
+                    LH.MaLichHen = %s
+                    OR BN.SDT = %s
+                    OR BN.MaBenhAn = %s
+                    OR BN.HoTen LIKE %s
+            """, (
+                keyword,
+                keyword,
+                keyword,
+                f"%{keyword}%"
+            ))
 
-        rows = await cursor.fetchall()
+            rows = await cursor.fetchall()
 
-        if not rows:
+            if not rows:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy lịch khám.",
+                    "data": None
+                }
+
             return {
-                "success": False,
-                "message": "Không tìm thấy lịch khám.",
-                "data": None
+                "success": True,
+                "message": "Tìm thấy lịch khám.",
+                "data": [dict(row) for row in rows]
             }
 
-        return {
-            "success": True,
-            "message": "Tìm thấy lịch khám.",
-            "data": [dict(row) for row in rows]
-        }
-
     finally:
-        await conn.close()
+        conn.close()
 
 
 
@@ -64,56 +66,64 @@ async def checkin_patient(
 
     try:
 
-        # 1. Lấy lịch hẹn
-        cursor = await conn.execute("""
-            SELECT MaLichHen, TrangThai
-            FROM LICH_HEN
-            WHERE MaLichHen = ?
-        """, (ma_lich_hen,))
+        async with conn.cursor(DictCursor) as cursor:
+            # 1. Lấy lịch hẹn
+            await cursor.execute("""
+                SELECT MaLichHen, TrangThai
+                FROM LICH_HEN
+                WHERE MaLichHen = %s
+            """, (ma_lich_hen,))
 
-        lh = await cursor.fetchone()
+            lh = await cursor.fetchone()
 
-        if not lh:
+            if not lh:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy lịch hẹn.",
+                    "data": None
+                }
+
+            # 2. Kiểm tra trạng thái
+            if lh["TrangThai"] == "Chờ khám":
+                return {
+                    "success": False,
+                    "message": "Bệnh nhân đã check-in trước đó.",
+                    "data": None
+                }
+
+            if lh["TrangThai"] == "Đang khám":
+                return {
+                    "success": False,
+                    "message": "Bệnh nhân đang được khám.",
+                    "data": None
+                }
+
+            if lh["TrangThai"] == "Hoàn thành":
+                return {
+                    "success": False,
+                    "message": "Lượt khám đã hoàn thành.",
+                    "data": None
+                }
+
+            await cursor.execute("""
+                UPDATE LICH_HEN
+                SET TrangThai = 'Chờ khám'
+                WHERE MaLichHen = %s
+            """, (ma_lich_hen,))
+            
+            checkin_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            await conn.commit()
+
             return {
-                "success": False,
-                "message": "Không tìm thấy lịch hẹn.",
-                "data": None
+                "success": True,
+                "message": "Check-in thành công.",
+                "data": {
+                    "MaLichHen": ma_lich_hen,
+                    "TrangThaiMoi": "Chờ khám",
+                    "ThoiGianCheckIn": checkin_time
+                }
             }
-
-        # 2. Kiểm tra trạng thái
-        if lh["TrangThai"] == "ChoKham":
-            return {
-                "success": False,
-                "message": "Bệnh nhân đã check-in trước đó.",
-                "data": None
-            }
-
-        if lh["TrangThai"] != "DaXacNhan":
-            return {
-                "success": False,
-                "message": "Lịch hẹn không hợp lệ để check-in.",
-                "data": None
-            }
-
-        await conn.execute("""
-            UPDATE LICH_HEN
-            SET TrangThai = 'ChoKham'
-            WHERE MaLichHen = ?
-        """, (ma_lich_hen,))
-        
-        checkin_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        await conn.commit()
-
-        return {
-            "success": True,
-            "message": "Check-in thành công.",
-            "data": {
-                "MaLichHen": ma_lich_hen,
-                "TrangThaiMoi": "ChoKham",
-                "ThoiGianCheckIn": checkin_time
-            }
-        }
 
     except Exception as e:
 
@@ -126,7 +136,7 @@ async def checkin_patient(
         }
 
     finally:
-        await conn.close()
+        conn.close()
 
 async def get_waiting_list_by_doctor(
     ma_bac_si: str,
@@ -137,24 +147,25 @@ async def get_waiting_list_by_doctor(
 
     try:
 
-        cursor = await conn.execute("""
-            SELECT
-                LH.MaLichHen,
-                BN.HoTen,
-                BN.MaBenhAn,
-                LH.NgayKham,
-                LH.CaKham,
-                LH.TrangThai
-            FROM LICH_HEN LH
-            JOIN BENH_NHAN BN
-                ON LH.MaBenhAn = BN.MaBenhAn
+        async with conn.cursor(DictCursor) as cursor:
+            await cursor.execute("""
+                SELECT
+                    LH.MaLichHen,
+                    BN.HoTen,
+                    BN.MaBenhAn,
+                    LH.NgayKham,
+                    LH.CaKham,
+                    LH.TrangThai
+                FROM LICH_HEN LH
+                JOIN BENH_NHAN BN
+                    ON LH.MaBenhAn = BN.MaBenhAn
             JOIN CHI_NHANH_DICH_VU CHDV
                 ON LH.MaCauHinh = CHDV.MaCauHinh
             JOIN LICH_TRUC LT
                 ON LT.MaChiNhanh = CHDV.MaChiNhanh
             WHERE
-                LT.MaBacSi = ?
-                AND LH.NgayKham = ?
+                LT.MaBacSi = %s
+                AND LH.NgayKham = %s
                 AND LH.TrangThai = 'ChoKham'
             ORDER BY LH.CaKham, LH.STT
         """, (
@@ -171,4 +182,4 @@ async def get_waiting_list_by_doctor(
         }
 
     finally:
-        await conn.close()
+        conn.close()

@@ -32,9 +32,10 @@ async def create_doctor_account_endpoint(
     MaBacSi: str = Form(...),
     chuyen_khoa: str = Form(...),
     sdt: str = Form(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    MaChiNhanh: str = Form(...)
 ):
-    return await create_doctor_account(name, MaBacSi, chuyen_khoa, sdt, password)
+    return await create_doctor_account(name, MaBacSi, chuyen_khoa, sdt, password, MaChiNhanh)
 
 @router.delete("/delete-doctor-account", response_model=ResponseModel)
 async def delete_doctor_account_endpoint(MaBacSi: str = Form(...)):
@@ -49,9 +50,10 @@ async def create_xet_nghiem_vien_account_endpoint(
     name: str = Form(...),
     MaXetNghiemVien: str = Form(...),
     sdt: str = Form(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    MaChiNhanh: str = Form(...)
 ):
-    return await create_xnv_account(name, MaXetNghiemVien, sdt, password)
+    return await create_xnv_account(name, MaXetNghiemVien, sdt, password, MaChiNhanh)
 @router.delete("/delete-xet-nghiem-vien-account", response_model=ResponseModel)
 async def delete_xet_nghiem_vien_account_endpoint(MaXetNghiemVien: str = Form(...)):
     return await delete_xnv_account(MaXetNghiemVien)
