@@ -301,3 +301,34 @@ async def get_medical_history(ma_benh_an: str):
 
     await conn.close()
     return {"success": True, "message": "Lấy lịch sử khám thành công.", "data": luot_kham_list}
+
+
+async def receive_notification(ma_benh_an: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                MaThongBao,
+                MaLichHen,
+                NoiDung,
+                TrangThai,
+                ThoiGianGui
+            FROM LICH_SU_THONG_BAO
+            WHERE MaBenhAn = %s
+            ORDER BY ThoiGianGui DESC
+        """, (ma_benh_an,))
+
+        notifications = [dict(row) for row in await cursor.fetchall()]
+        return {
+            "success": True,
+            "message": "Lấy danh sách thông báo thành công.",
+            "data": notifications,
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": str(exc),
+            "data": None,
+        }
+    finally:
+        await conn.close()

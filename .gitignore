@@ -19,6 +19,7 @@ Backend/output_schedule.txt
 
 # Frontend
 Frontend/node_modules/
+Frontend/.vite/
 Frontend/dist/
 Frontend/dist-ssr/
 Frontend/.env

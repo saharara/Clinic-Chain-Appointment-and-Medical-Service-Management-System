@@ -7,7 +7,26 @@ from api.letan_api import router as letan_router
 from api.patient_api import router as patient_router
 from api.xnv_api import router as xnv_router
 from api.doctor_api import router as doctor_router
+from database import close_pool, get_connection
+
 app = FastAPI(title="Clinic Chain Appointment & Medical Service API")
+
+@app.on_event("startup")
+async def startup():
+    try:
+        conn = await get_connection()
+        cursor = await conn.execute("SELECT 1 AS Ping")
+        result = await cursor.fetchone()
+        print(f"Database connected successfully: {result}")
+        await conn.close()
+    except Exception as e:
+        print(f"✗ Database connection failed: {e}")
+        raise
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await close_pool()
 
 app.add_middleware(
     CORSMiddleware,

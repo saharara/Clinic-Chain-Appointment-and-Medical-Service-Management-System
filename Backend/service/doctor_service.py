@@ -277,3 +277,68 @@ async def save_examination_record(exam_data: dict):
         return {"success": False, "message": str(e), "data": None}
     finally:
         await conn.close()
+
+
+async def search_patient_history(keyword: str):
+    conn = await get_connection()
+    try:
+        like_keyword = f"%{keyword}%"
+        cursor = await conn.execute("""
+            SELECT 
+                BN.MaBenhAn,
+                BN.HoTen AS TenBenhNhan,
+                BN.GioiTinh,
+                BN.NgaySinh,
+                BN.CCCD,
+                BN.SDT AS SDTBenhNhan,
+                BN.DiaChi,
+                BN.MaSoBHYT,
+                BHYT.KyTuDauBHYT,
+                BHYT.DoiTuongChinhSach,
+                BHYT.TyLeHuong,
+                LH.MaLichHen,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.TrangThai,
+                LH.GiaCuoi,
+                LH.MaBacSi,
+                DV.MaDichVu,
+                DV.TenDichVu
+            FROM BENH_NHAN BN
+            JOIN LICH_HEN LH
+                ON BN.MaBenhAn = LH.MaBenhAn
+            LEFT JOIN DANH_MUC_BHYT BHYT
+                ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            WHERE
+                BN.HoTen LIKE %s
+                OR BN.CCCD LIKE %s
+                OR BN.SDT LIKE %s
+                OR BN.DiaChi LIKE %s
+                OR BN.MaSoBHYT LIKE %s
+                OR LH.MaLichHen LIKE %s
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC
+            LIMIT 50
+        """, (
+            like_keyword,
+            like_keyword,
+            like_keyword,
+            like_keyword,
+            like_keyword,
+            like_keyword,
+        ))
+
+        rows = [dict(row) for row in await cursor.fetchall()]
+        return {
+            "success": True,
+            "message": f"Tìm thấy {len(rows)} kết quả.",
+            "data": rows,
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
