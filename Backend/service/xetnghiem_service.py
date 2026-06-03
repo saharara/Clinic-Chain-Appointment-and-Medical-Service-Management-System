@@ -1,5 +1,4 @@
 from check_db import get_connection
-import sqlite3
 
 
 async def get_pending_tests(ma_chi_nhanh: str):
@@ -15,8 +14,8 @@ async def get_pending_tests(ma_chi_nhanh: str):
                 CTXN.MaDichVu,
                 DV.TenDichVu,
                 DV.GiaGoc,
-                CAST(DV.GiaGoc * COALESCE(BHYT.TyLeHuong, 0) AS INTEGER) AS BHYTGiamTru,
-                CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS INTEGER) AS GiaCuoiThucTra,
+                CAST(DV.GiaGoc * COALESCE(BHYT.TyLeHuong, 0) AS SIGNED) AS BHYTGiamTru,
+                CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS SIGNED) AS GiaCuoiThucTra,
                 CTXN.TrangThaiXetNghiem,
                 CTXN.PaymentToken,
                 CTXN.GiaCuoi,
@@ -44,7 +43,7 @@ async def get_pending_tests(ma_chi_nhanh: str):
                 ON LH.MaCauHinh = CNDV.MaCauHinh
             WHERE
                 CTXN.TrangThaiXetNghiem = 'Chưa thực hiện'
-                AND CNDV.MaChiNhanh = ?
+                AND CNDV.MaChiNhanh = %s
             ORDER BY LH.NgayKham, LH.CaKham, BN.HoTen
         """, (ma_chi_nhanh,))
 
@@ -81,7 +80,7 @@ async def accept_test_request(ma_chi_tiet_xn: str, ma_chi_nhanh: str):
                 ON LK.MaLichHen = LH.MaLichHen
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
-            WHERE CTXN.MaChiTietXN = ?
+            WHERE CTXN.MaChiTietXN = %s
         """, (ma_chi_tiet_xn,))
 
         req = await cursor.fetchone()
@@ -157,7 +156,7 @@ async def update_test_result(
                 ON LK.MaLichHen = LH.MaLichHen
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
-            WHERE CTXN.MaChiTietXN = ?
+            WHERE CTXN.MaChiTietXN = %s
         """, (ma_chi_tiet_xn,))
 
         req = await cursor.fetchone()
@@ -185,10 +184,10 @@ async def update_test_result(
 
         await conn.execute("""
             UPDATE CHI_TIET_XET_NGHIEM
-            SET KetQuaXetNghiem = ?,
+            SET KetQuaXetNghiem = %s,
                 TrangThaiXetNghiem = 'Đã có kết quả',
-                MaXNV = COALESCE(?, MaXNV)
-            WHERE MaChiTietXN = ?
+                MaXNV = COALESCE(%s, MaXNV)
+            WHERE MaChiTietXN = %s
         """, (
             ket_qua,
             ma_xnv,
@@ -222,9 +221,6 @@ async def update_test_result(
 
 async def get_test_detail(ma_chi_tiet_xn: str):
     conn = await get_connection()
-    
-    # Đảm bảo row trả về có thể parse thành dictionary bằng dict(row)
-    conn.row_factory = sqlite3.Row 
     
     try:
         cursor = await conn.execute("""
@@ -296,7 +292,7 @@ async def get_test_detail(ma_chi_tiet_xn: str):
             LEFT JOIN XET_NGHIEM_VIEN XNV 
                 ON CTXN.MaXNV = XNV.MaXNV
                 
-            WHERE CTXN.MaChiTietXN = ?
+            WHERE CTXN.MaChiTietXN = %s
         """, (ma_chi_tiet_xn,))
 
         row = await cursor.fetchone()

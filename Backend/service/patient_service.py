@@ -1,6 +1,4 @@
-import sqlite3
 import uuid
-from datetime import datetime
 from check_db import get_connection
 
 
@@ -19,13 +17,13 @@ async def register_account(data: dict):
 
         # Extension 6a: Kiểm tra số điện thoại (tài khoản) đã tồn tại
         cursor = await conn.execute(
-            "SELECT SDT FROM BENH_NHAN WHERE SDT = ?", (data['sdt'],)
+            "SELECT SDT FROM BENH_NHAN WHERE SDT = %s", (data['sdt'],)
         )
         if await cursor.fetchone():
             return {"success": False, "message": "Số điện thoại đã được sử dụng.", "data": None}
 
         cursor = await conn.execute(
-            "SELECT CCCD FROM BENH_NHAN WHERE CCCD = ?", (data["cccd"],)
+            "SELECT CCCD FROM BENH_NHAN WHERE CCCD = %s", (data["cccd"],)
         )
         if await cursor.fetchone():
             return {"success": False, "message": "Số CCCD đã được sử dụng.", "data": None}
@@ -45,7 +43,7 @@ async def register_account(data: dict):
         
         await conn.execute("""
             INSERT INTO BENH_NHAN (MaBenhAn, HoTen, CCCD, NgaySinh, GioiTinh, SDT, MatKhau, DiaChi, MaSoBHYT, KyTuDauBHYT)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             ma_ba,
             data['hoten'],
@@ -66,10 +64,12 @@ async def register_account(data: dict):
         if conn:
             await conn.rollback() # Extension 8a: Rollback khi lỗi
         return {"success": False, "message": f"Lỗi hệ thống: {str(e)}", "data": None}
+    finally:
+        if conn:
+            await conn.close()
 
 async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham: str):
     conn = await get_connection()
-    conn.row_factory = sqlite3.Row # Đảm bảo trả về Row để ép kiểu dict()
     
     # 1. Chuẩn hóa từ khóa tìm kiếm: 
     # Bỏ khoảng trắng, đưa về in thường và bọc trong dấu % để dùng cho toán tử LIKE
@@ -79,6 +79,8 @@ async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham:
     # Truy vấn tìm các ca trực
     cursor = await conn.execute("""
         SELECT 
+            LTR.id,
+            LTR.MaLichTruc,
             LTR.CaTruc, 
             BS.HoTen AS TenBacSi, 
             CNDV.MaCauHinh,
@@ -94,9 +96,9 @@ async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham:
         JOIN CHI_NHANH_DICH_VU CNDV ON DV.MaDichVu = CNDV.MaDichVu AND LTR.MaChiNhanh = CNDV.MaChiNhanh
         
         -- 2. Chuẩn hóa cột trong Database: Bỏ khoảng trắng, đưa về in thường và dùng LIKE
-        WHERE LTR.MaChiNhanh = ? 
-          AND REPLACE(LOWER(DV.ChuyenKhoa), ' ', '') LIKE ? 
-          AND LTR.NgayTruc = ?
+        WHERE LTR.MaChiNhanh = %s 
+          AND REPLACE(LOWER(DV.ChuyenKhoa), ' ', '') LIKE %s 
+          AND LTR.NgayTruc = %s
     """, (ma_chi_nhanh, search_pattern, ngay_kham))
     
     slots = await cursor.fetchall()
@@ -105,8 +107,10 @@ async def search_available_slots(ma_chi_nhanh: str, chuyen_khoa: str, ngay_kham:
     available_slots = [dict(s) for s in slots if s['SlotConTrong'] > 0]
     
     if not available_slots:
+        await conn.close()
         return {"success": False, "message": "Không có suất khám hoặc bác sĩ phù hợp.", "data": None}
-        
+
+    await conn.close()
     return {"success": True, "message": "Tìm thấy suất khám phù hợp.", "data": available_slots}
 
 async def book_and_pay(
@@ -124,7 +128,7 @@ async def book_and_pay(
             SELECT BN.KyTuDauBHYT, BHYT.TyLeHuong 
             FROM BENH_NHAN BN
             LEFT JOIN DANH_MUC_BHYT BHYT ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
-            WHERE BN.MaBenhAn = ?
+            WHERE BN.MaBenhAn = %s
         """, (ma_benh_an,))
         bn_info = await cursor.fetchone()
         if not bn_info:
@@ -135,7 +139,7 @@ async def book_and_pay(
             SELECT DV.GiaGoc 
             FROM CHI_NHANH_DICH_VU CNDV
             JOIN DICH_VU DV ON CNDV.MaDichVu = DV.MaDichVu
-            WHERE CNDV.MaCauHinh = ?
+            WHERE CNDV.MaCauHinh = %s
         """, (ma_cau_hinh,))
         dv_info = await cursor.fetchone()
         if not dv_info:
@@ -146,9 +150,16 @@ async def book_and_pay(
         gia_cuoi = int(dv_info['GiaGoc'] * (1 - ty_le))
         
         ma_lich_hen = f"LH_{uuid.uuid4().hex[:6].upper()}"
-        stt = await conn.execute("SELECT COALESCE(MAX(STT), 0) + 1 FROM LICH_HEN WHERE MaCauHinh = ?", (ma_cau_hinh,))
-        stt = await stt.fetchone()
-        stt = stt[0]
+        stt_cursor = await conn.execute(
+            """
+            SELECT COALESCE(MAX(STT), 0) + 1 AS NextSTT
+            FROM LICH_HEN
+            WHERE MaCauHinh = %s
+            """,
+            (ma_cau_hinh,),
+        )
+        stt_row = await stt_cursor.fetchone()
+        stt = stt_row["NextSTT"] if stt_row else 1
 
         # Giả lập đã thanh toán thành công qua QR
         payment_token = f"TOK_{uuid.uuid4().hex[:10]}"
@@ -166,7 +177,7 @@ async def book_and_pay(
                 TrangThai,
                 MaBacSi
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Đã xác nhận', ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Chờ khám', %s)
         """, (
             ma_lich_hen,
             ma_benh_an,
@@ -194,6 +205,9 @@ async def book_and_pay(
         if conn:
             await conn.rollback() # Extension 12a
         return {"success": False, "message": "Lỗi tạo lịch khám", "data": None}
+    finally:
+        if conn:
+            await conn.close()
 
 async def book_treatment(ma_lich_trinh: str, ma_benh_an: str, ngay: str, ca: int):
     conn = await get_connection()
@@ -202,43 +216,48 @@ async def book_treatment(ma_lich_trinh: str, ma_benh_an: str, ngay: str, ca: int
         SELECT LTDT.TrangThai FROM LICH_TRINH_DIEU_TRI LTDT
         JOIN LUOT_KHAM LK ON LTDT.MaLuotKham = LK.MaLuotKham
         JOIN LICH_HEN LH ON LK.MaLichHen = LH.MaLichHen
-        WHERE LTDT.MaLichTrinh = ? AND LH.MaBenhAn = ?
+        WHERE LTDT.MaLichTrinh = %s AND LH.MaBenhAn = %s
     """, (ma_lich_trinh, ma_benh_an))
     
     row = await cursor.fetchone()
-    if not row or row['TrangThai'] != 'ChuaDatLich':
+    if not row or row['TrangThai'] != 'Chưa đặt lịch':
+        await conn.close()
         return {"success": False, "message": "Chỉ định không hợp lệ hoặc đã đặt lịch.", "data": None}
         
     await conn.execute("""
         UPDATE LICH_TRINH_DIEU_TRI 
-        SET NgayThucHien = ?, CaKham = ?, TrangThai = 'DaDatLich'
-        WHERE MaLichTrinh = ?
+        SET NgayThucHien = %s, CaKham = %s, TrangThai = 'Chờ khám'
+        WHERE MaLichTrinh = %s
     """, (ngay, ca, ma_lich_trinh))
     
     await conn.commit()
-    return {"success": True, "message": "Hẹn lịch điều trị thành công.", "data": {
+    response = {"success": True, "message": "Hẹn lịch điều trị thành công.", "data": {
         "MaLichTrinh": ma_lich_trinh,
         "NgayThucHien": ngay,
         "CaKham": ca
     }}
+    await conn.close()
+    return response
 
 async def request_refund(ma_lich_hen: str, ma_benh_an: str, bank_info: str):
     conn = await get_connection()
     cursor = await conn.execute("""
-        UPDATE LICH_HEN 
-        SET TrangThai = 'ChoHoanTien' 
-        WHERE MaLichHen = ? AND MaBenhAn = ? AND TrangThai = 'DaHuy'
+        SELECT MaLichHen
+        FROM LICH_HEN
+        WHERE MaLichHen = %s AND MaBenhAn = %s AND TrangThai = 'Đã hủy'
     """, (ma_lich_hen, ma_benh_an))
     
-    if cursor.rowcount == 0:
+    if not await cursor.fetchone():
+        await conn.close()
         return {"success": False, "message": "Lịch hẹn không đủ điều kiện hoàn tiền.", "data": None}
         
-    # Thực tế sẽ insert bank_info vào 1 bảng riêng
-    await conn.commit()
-    return {"success": True, "message": "Đã gửi yêu cầu hoàn tiền.", "data": {
+    # Thực tế sẽ lưu bank_info vào một bảng yêu cầu hoàn tiền riêng khi có schema chính thức.
+    response = {"success": True, "message": "Đã gửi yêu cầu hoàn tiền.", "data": {
         "MaLichHen": ma_lich_hen,
         "BankInfo": bank_info
     }}
+    await conn.close()
+    return response
 
 async def get_medical_history(ma_benh_an: str):
     conn = await get_connection()
@@ -248,13 +267,14 @@ async def get_medical_history(ma_benh_an: str):
         FROM LUOT_KHAM LK
         JOIN LICH_HEN LH ON LK.MaLichHen = LH.MaLichHen
         LEFT JOIN BENH B ON LK.MaBenh = B.MaBenh
-        WHERE LH.MaBenhAn = ?
+        WHERE LH.MaBenhAn = %s
         ORDER BY LH.NgayKham DESC
     """, (ma_benh_an,))
     
     luot_kham_list = [dict(row) for row in await cursor.fetchall()]
     
     if not luot_kham_list:
+        await conn.close()
         return {"success": False, "message": "Chưa có lịch sử khám.", "data": None} # Ext 3a
         
     # 2. Map chi tiết (Thuốc, XN) vào từng lượt khám
@@ -266,7 +286,7 @@ async def get_medical_history(ma_benh_an: str):
             SELECT T.TenThuoc, CTDT.SoLuong, CTDT.LieuDung 
             FROM CHI_TIET_DON_THUOC CTDT
             JOIN THUOC T ON CTDT.MaThuoc = T.MaThuoc
-            WHERE CTDT.MaLuotKham = ?
+            WHERE CTDT.MaLuotKham = %s
         """, (ma_lk,))
         lk['DonThuoc'] = [dict(t) for t in await cur_thuoc.fetchall()]
         
@@ -275,8 +295,9 @@ async def get_medical_history(ma_benh_an: str):
             SELECT DV.TenDichVu, CTXN.KetQuaXetNghiem 
             FROM CHI_TIET_XET_NGHIEM CTXN
             JOIN DICH_VU DV ON CTXN.MaDichVu = DV.MaDichVu
-            WHERE CTXN.MaLuotKham = ?
+            WHERE CTXN.MaLuotKham = %s
         """, (ma_lk,))
         lk['XetNghiem'] = [dict(x) for x in await cur_xn.fetchall()]
 
+    await conn.close()
     return {"success": True, "message": "Lấy lịch sử khám thành công.", "data": luot_kham_list}

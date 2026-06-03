@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   Building2,
@@ -223,6 +223,67 @@ function InputField({ label, placeholder, icon, type = 'text', value, onChange }
   )
 }
 
+function GlobalToast({ toast }) {
+  if (!toast.show) return null
+
+  const isError = toast.type === 'error'
+
+  return (
+    <div className={`global-toast ${isError ? 'error' : 'success'}`} role="status" aria-live="polite">
+      <span className="global-toast-icon">{isError ? '×' : '✓'}</span>
+      <span>{toast.message}</span>
+    </div>
+  )
+}
+
+function NotificationBell({ notifications, onMarkAllRead }) {
+  const [open, setOpen] = useState(false)
+  const unreadCount = notifications.filter((notification) => !notification.read).length
+  const sortedNotifications = [...notifications].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+  return (
+    <div className="notification-bell-wrap">
+      <button
+        type="button"
+        className="notification-bell-button"
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Thông báo bệnh nhân"
+      >
+        <span className="notification-bell-icon">🔔</span>
+        {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
+      </button>
+
+      {open && (
+        <div className="notification-panel">
+          <div className="notification-panel-head">
+            <strong>Thông báo</strong>
+            {unreadCount > 0 && (
+              <button type="button" onClick={onMarkAllRead}>
+                Đánh dấu đã đọc
+              </button>
+            )}
+          </div>
+          <div className="notification-list">
+            {sortedNotifications.length > 0 ? (
+              sortedNotifications.map((notification) => (
+                <article
+                  key={notification.id}
+                  className={`notification-item ${notification.read ? 'read' : 'unread'}`}
+                >
+                  <p>{notification.message}</p>
+                  <span>{notification.createdAt.replace('T', ' ').slice(0, 16)}</span>
+                </article>
+              ))
+            ) : (
+              <p className="notification-empty">Chưa có thông báo mới.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const [mode, setMode] = useState('login')
   const [role, setRole] = useState('patient')
@@ -240,6 +301,65 @@ export default function App() {
   const [xacNhanMatKhauDangKy, setXacNhanMatKhauDangKy] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [patientAccounts, setPatientAccounts] = useState(INITIAL_PATIENT_ACCOUNTS)
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
+  const [notifications, setNotifications] = useState([])
+  const [scheduleAdjustments, setScheduleAdjustments] = useState([])
+  const toastTimerRef = useRef(null)
+
+  const showNotification = (message, type = 'success') => {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+
+    setToast({ show: true, message, type })
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast((current) => ({ ...current, show: false }))
+    }, 1800)
+  }
+
+  const renderWithToast = (content) => (
+    <>
+      {content}
+      <GlobalToast toast={toast} />
+    </>
+  )
+
+  const addPatientNotifications = (items) => {
+    if (!items.length) return
+
+    const createdAt = new Date().toISOString()
+    setNotifications((current) => [
+      ...items.map((item, index) => ({
+        id: `NOTI_${createdAt.replace(/\D/g, '')}_${index}`,
+        MaBenhNhan: item.MaBenhNhan || item.MaBenhAn,
+        MaBenhAn: item.MaBenhAn || item.MaBenhNhan,
+        message: item.message,
+        read: false,
+        createdAt,
+      })),
+      ...current,
+    ])
+  }
+
+  const markPatientNotificationsRead = (maBenhAn) => {
+    setNotifications((current) =>
+      current.map((notification) =>
+        notification.MaBenhAn === maBenhAn || notification.MaBenhNhan === maBenhAn
+          ? { ...notification, read: true }
+          : notification,
+      ),
+    )
+  }
+
+  const addScheduleAdjustment = (adjustment) => {
+    setScheduleAdjustments((current) => [
+      {
+        ...adjustment,
+        id: `SCH_ADJ_${Date.now()}_${current.length + 1}`,
+      },
+      ...current,
+    ])
+  }
 
   const handleLogin = async (event) => {
     event.preventDefault()
@@ -271,14 +391,14 @@ export default function App() {
         name: 'Phạm Minh Thư',
         MatKhau: '123456',
         MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       },
       {
         id: 'LT002',
         name: 'Nguyễn Hoàng Yến',
         MatKhau: '123456',
         MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       },
     ]
     const mockReceptionist = mockReceptionists.find(
@@ -298,14 +418,14 @@ export default function App() {
         name: 'Trần Văn Cường',
         MatKhau: '123456',
         MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       },
       {
         id: 'XNV002',
         name: 'Vũ Hồng Ngọc',
         MatKhau: '123456',
         MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       },
     ]
     const mockTechnician = mockTechnicians.find(
@@ -329,7 +449,7 @@ export default function App() {
         SDT: '0911222333',
         MatKhau: '123456',
         MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       },
       {
         id: 'BS002',
@@ -340,7 +460,7 @@ export default function App() {
         SDT: '0922333444',
         MatKhau: '123456',
         MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       },
       {
         id: 'BS015',
@@ -351,7 +471,7 @@ export default function App() {
         SDT: '0936789012',
         MatKhau: '123456',
         MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       },
     ]
     const mockDoctor = mockDoctors.find(
@@ -442,10 +562,10 @@ export default function App() {
         })
 		        setMode(role)
 		      } else {
-        alert(`Đăng nhập thất bại: ${data.detail || 'Sai tài khoản hoặc mật khẩu'}`)
+        showNotification(`Đăng nhập thất bại: ${data.detail || 'Sai tài khoản hoặc mật khẩu'}`, 'error')
       }
     } catch {
-      alert('Không thể kết nối đến Backend FastAPI! Bạn đã bật Uvicorn chưa?')
+      showNotification('Không thể kết nối đến Backend FastAPI! Bạn đã bật Uvicorn chưa?', 'error')
     }
   }
 
@@ -453,12 +573,12 @@ export default function App() {
     event.preventDefault()
 
     if (matKhauDangKy !== xacNhanMatKhauDangKy) {
-      alert('Mật khẩu xác nhận không trùng khớp, vui lòng kiểm tra lại!')
+      showNotification('Mật khẩu xác nhận không trùng khớp, vui lòng kiểm tra lại!', 'error')
       return
     }
 
     if (patientAccounts.some((patient) => patient.CCCD === cccdDangKy.trim())) {
-      alert('Số CCCD này đã tồn tại trong hệ thống, vui lòng đăng nhập hoặc kiểm tra lại!')
+      showNotification('Số CCCD này đã tồn tại trong hệ thống, vui lòng đăng nhập hoặc kiểm tra lại!', 'error')
       return
     }
 
@@ -497,16 +617,16 @@ export default function App() {
             MatKhau: matKhauDangKy,
           },
         ])
-        alert('Đăng ký tài khoản Bệnh nhân thành công! Mời bạn đăng nhập.')
+        showNotification('Đăng ký tài khoản Bệnh nhân thành công! Mời bạn đăng nhập.')
         setUsername(cccdDangKy.trim())
         setPassword('')
         setMode('login')
       } else {
         const errorData = await response.json()
-        alert(`Đăng ký thất bại: ${errorData.detail || 'Dữ liệu không hợp lệ'}`)
+        showNotification(`Đăng ký thất bại: ${errorData.detail || 'Dữ liệu không hợp lệ'}`, 'error')
       }
     } catch {
-      alert('Lỗi kết nối máy chủ khi đăng ký!')
+      showNotification('Lỗi kết nối máy chủ khi đăng ký!', 'error')
     }
   }
 
@@ -523,13 +643,56 @@ export default function App() {
 	    setCurrentUser((current) => (current ? { ...current, ...updatedFields } : current))
 	  }
 
-	  if (mode === 'admin') return <AdminDashboard user={currentUser} onLogout={handleLogout} />
-	  if (mode === 'doctor') return <DoctorDashboard user={currentUser} onLogout={handleLogout} />
-	  if (mode === 'letan') return <ReceptionistDashboard user={currentUser} onLogout={handleLogout} />
-	  if (mode === 'xnv') return <TechnicianDashboard user={currentUser} onLogout={handleLogout} />
-	  if (mode === 'patient') return <PatientDashboard user={currentUser} onLogout={handleLogout} onUpdateUser={handleUpdateCurrentUser} />
+	  if (mode === 'admin') {
+	    return renderWithToast(
+	      <AdminDashboard
+	        user={currentUser}
+	        onLogout={handleLogout}
+	        showNotification={showNotification}
+	        addPatientNotifications={addPatientNotifications}
+	        addScheduleAdjustment={addScheduleAdjustment}
+	      />,
+	    )
+	  }
+	  if (mode === 'doctor') {
+	    return renderWithToast(
+	      <DoctorDashboard
+	        user={currentUser}
+	        onLogout={handleLogout}
+	        showNotification={showNotification}
+	        scheduleAdjustments={scheduleAdjustments}
+	      />,
+	    )
+	  }
+	  if (mode === 'letan') {
+	    return renderWithToast(
+	      <ReceptionistDashboard user={currentUser} onLogout={handleLogout} showNotification={showNotification} />,
+	    )
+	  }
+	  if (mode === 'xnv') {
+	    return renderWithToast(
+	      <TechnicianDashboard
+	        user={currentUser}
+	        onLogout={handleLogout}
+	        showNotification={showNotification}
+	        onUpdateUser={handleUpdateCurrentUser}
+	      />,
+	    )
+	  }
+	  if (mode === 'patient') {
+	    return renderWithToast(
+	      <PatientDashboard
+	        user={currentUser}
+	        onLogout={handleLogout}
+	        onUpdateUser={handleUpdateCurrentUser}
+	        showNotification={showNotification}
+	        notifications={notifications}
+	        onMarkNotificationsRead={markPatientNotificationsRead}
+	      />,
+	    )
+	  }
 
-  return (
+  return renderWithToast(
     <main className="page-shell">
       <section className="auth-wrapper">
         <div className="auth-layout">
@@ -694,21 +857,27 @@ export default function App() {
           </div>
         </div>
       </section>
-    </main>
+    </main>,
   )
 }
 
-function AdminDashboard({ user, onLogout }) {
+function AdminDashboard({
+  user,
+  onLogout,
+  showNotification,
+  addPatientNotifications,
+  addScheduleAdjustment,
+}) {
   const [branches, setBranches] = useState([
     {
       MaChiNhanh: 'CN_CG',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+      TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       DiaChi: 'Số 1 Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
       SDT: '0241234567',
     },
     {
       MaChiNhanh: 'CN_HBT',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+      TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       DiaChi: 'Số 99 Đại Cồ Việt, Hai Bà Trưng, Hà Nội',
       SDT: '0247654321',
     },
@@ -1089,6 +1258,7 @@ function AdminDashboard({ user, onLogout }) {
       GiaCuoi: 30000,
       TrangThai: 'Hoàn thành',
       MaLeTan: 'LT001',
+      MaBacSi: 'BS001',
     },
     {
       MaLichHen: 'LH_002',
@@ -1100,6 +1270,7 @@ function AdminDashboard({ user, onLogout }) {
       GiaCuoi: 200000,
       TrangThai: 'Đã xác nhận',
       MaLeTan: '',
+      MaBacSi: 'BS002',
     },
     {
       MaLichHen: 'LH_003',
@@ -1111,6 +1282,7 @@ function AdminDashboard({ user, onLogout }) {
       GiaCuoi: 0,
       TrangThai: 'Chờ khám',
       MaLeTan: 'LT001',
+      MaBacSi: 'BS001',
     },
     {
       MaLichHen: 'LH_004',
@@ -1122,6 +1294,7 @@ function AdminDashboard({ user, onLogout }) {
       GiaCuoi: 150000,
       TrangThai: 'Hoàn thành',
       MaLeTan: 'LT001',
+      MaBacSi: 'BS001',
     },
     {
       MaLichHen: 'LH_005',
@@ -1133,6 +1306,43 @@ function AdminDashboard({ user, onLogout }) {
       GiaCuoi: 0,
       TrangThai: 'Hoàn thành',
       MaLeTan: 'LT002',
+      MaBacSi: 'BS003',
+    },
+    {
+      MaLichHen: 'LH_006',
+      MaBenhAn: 'BN001',
+      MaCauHinh: 'CH_CG_KHAMNOI',
+      NgayKham: '2026-05-18',
+      CaKham: 1,
+      STT: 1,
+      GiaCuoi: 30000,
+      TrangThai: 'Hoàn thành',
+      MaLeTan: 'LT001',
+      MaBacSi: 'BS001',
+    },
+    {
+      MaLichHen: 'LH_007',
+      MaBenhAn: 'BN002',
+      MaCauHinh: 'CH_CG_KHAMRANG',
+      NgayKham: '2026-05-20',
+      CaKham: 3,
+      STT: 1,
+      GiaCuoi: 200000,
+      TrangThai: 'Đã khám',
+      MaLeTan: 'LT001',
+      MaBacSi: 'BS002',
+    },
+    {
+      MaLichHen: 'LH_008',
+      MaBenhAn: 'BN003',
+      MaCauHinh: 'CH_HBT_KHAMTMH',
+      NgayKham: '2026-05-22',
+      CaKham: 1,
+      STT: 1,
+      GiaCuoi: 0,
+      TrangThai: 'Đã hủy',
+      MaLeTan: 'LT002',
+      MaBacSi: 'BS003',
     },
   ])
   const [labTestDetails] = useState([
@@ -1163,6 +1373,47 @@ function AdminDashboard({ user, onLogout }) {
       NgayThucHien: '2026-06-01',
       TrangThai: 'Hoàn thành',
     },
+    {
+      MaChiTietXN: 'CTXN_004',
+      MaBenhAn: 'BN002',
+      MaDichVu: 'SA_O_BUNG',
+      MaChiNhanh: 'CN_CG',
+      MaBacSi: 'BS002',
+      NgayThucHien: '2026-05-20',
+      TrangThai: 'Hoàn thành',
+    },
+  ])
+  const [treatmentRevenueDetails] = useState([
+    {
+      MaLichTrinh: 'LTDT_AD_001',
+      MaBenhAn: 'BN001',
+      MaDichVu: 'DT_RANG_TUY',
+      MaChiNhanh: 'CN_CG',
+      MaBacSi: 'BS002',
+      NgayThucHien: '2026-06-05',
+      GiaCuoi: 240000,
+      TrangThai: 'Hoàn thành',
+    },
+    {
+      MaLichTrinh: 'LTDT_AD_002',
+      MaBenhAn: 'BN003',
+      MaDichVu: 'DT_KHIDUNG',
+      MaChiNhanh: 'CN_HBT',
+      MaBacSi: 'BS003',
+      NgayThucHien: '2026-06-12',
+      GiaCuoi: 0,
+      TrangThai: 'Hoàn thành',
+    },
+    {
+      MaLichTrinh: 'LTDT_AD_003',
+      MaBenhAn: 'BN002',
+      MaDichVu: 'DT_RANG_TUY',
+      MaChiNhanh: 'CN_CG',
+      MaBacSi: 'BS002',
+      NgayThucHien: '2026-05-24',
+      GiaCuoi: 1200000,
+      TrangThai: 'Hoàn thành',
+    },
   ])
   const [bulkScheduleForm, setBulkScheduleForm] = useState({
     MaBacSi: 'BS001',
@@ -1171,11 +1422,25 @@ function AdminDashboard({ user, onLogout }) {
     DenNgay: '2026-06-07',
     selections: {},
   })
+  const todayFilter = new Date().toISOString().slice(0, 10)
+  const nextWeekFilter = new Date()
+  nextWeekFilter.setDate(nextWeekFilter.getDate() + 7)
   const [scheduleFilters, setScheduleFilters] = useState({
-    NgayTruc: new Date().toISOString().slice(0, 10),
+    TuNgay: todayFilter,
+    DenNgay: nextWeekFilter.toISOString().slice(0, 10),
     MaBacSi: 'all',
   })
+  const [doctorTransferModal, setDoctorTransferModal] = useState({
+    show: false,
+    schedule: null,
+    nextDoctorId: '',
+  })
   const [feedback, setFeedback] = useState('')
+  const notify = (message, type = 'success') => {
+    setFeedback(message)
+    showNotification?.(message, type)
+  }
+  const [reportMonth, setReportMonth] = useState('2026-06')
 
   const clinicalDepartments = ['Nội tổng quát', 'Răng hàm mặt', 'Tai mũi họng']
   const serviceDepartments = ['Nội tổng quát', 'Răng hàm mặt', 'Tai mũi họng', 'Xét nghiệm']
@@ -1254,7 +1519,15 @@ function AdminDashboard({ user, onLogout }) {
     )
   }
 
-  const calculateRevenueParts = (maBenhAn, giaGoc) => {
+  const calculateRevenueParts = (maBenhAn, giaGoc, giaCuoiOverride = null) => {
+    if (giaCuoiOverride !== null && giaCuoiOverride !== undefined && giaCuoiOverride !== '') {
+      const netRevenue = Math.max(0, Number(giaCuoiOverride) || 0)
+      return {
+        netRevenue,
+        insuranceAmount: Math.max(0, Number(giaGoc || 0) - netRevenue),
+      }
+    }
+
     const tyLeHuong = getBhytRate(maBenhAn)
     const insuranceAmount = Math.round(giaGoc * tyLeHuong)
     const netRevenue = Math.max(0, giaGoc - insuranceAmount)
@@ -1284,22 +1557,68 @@ function AdminDashboard({ user, onLogout }) {
     ).length
   }
 
+  const getAffectedAppointmentsForSchedule = (schedule) => {
+    const configIds = branchServices
+      .filter((config) => config.MaChiNhanh === schedule.MaChiNhanh)
+      .map((config) => config.MaCauHinh)
+    const activeStatuses = ['Đã xác nhận', 'Chờ khám', 'Đang khám', 'Chờ kết luận']
+
+    return appointments.filter(
+      (appointment) =>
+        appointment.NgayKham === schedule.NgayTruc &&
+        Number(appointment.CaKham) === Number(schedule.CaTruc) &&
+        configIds.includes(appointment.MaCauHinh) &&
+        (appointment.MaBacSi ? appointment.MaBacSi === schedule.MaBacSi : true) &&
+        activeStatuses.includes(appointment.TrangThai),
+    )
+  }
+
+  const pushScheduleNotifications = (affectedAppointments, messageBuilder) => {
+    const patientNotifications = affectedAppointments.map((appointment) => ({
+      MaBenhAn: appointment.MaBenhAn,
+      MaBenhNhan: appointment.MaBenhAn,
+      message: messageBuilder(appointment),
+    }))
+
+    addPatientNotifications?.(patientNotifications)
+    return patientNotifications.length
+  }
+
   const filteredDoctorSchedules = doctorSchedules.filter((schedule) => {
-    const matchedDate = !scheduleFilters.NgayTruc || schedule.NgayTruc === scheduleFilters.NgayTruc
+    const matchedStartDate =
+      !scheduleFilters.TuNgay || schedule.NgayTruc >= scheduleFilters.TuNgay
+    const matchedEndDate =
+      !scheduleFilters.DenNgay || schedule.NgayTruc <= scheduleFilters.DenNgay
     const matchedDoctor =
       scheduleFilters.MaBacSi === 'all' || schedule.MaBacSi === scheduleFilters.MaBacSi
 
-    return matchedDate && matchedDoctor
+    return matchedStartDate && matchedEndDate && matchedDoctor
   })
 
+  const getReportMonthRangeLabel = (monthValue) => {
+    const [year, month] = monthValue.split('-').map(Number)
+    const lastDay = new Date(year, month, 0).getDate()
+    const formattedMonth = String(month).padStart(2, '0')
+
+    return `Chu kỳ báo cáo: Từ ngày 01/${formattedMonth}/${year} đến ngày ${lastDay}/${formattedMonth}/${year}`
+  }
+
+  const isInReportMonth = (dateValue) => Boolean(dateValue?.startsWith(reportMonth))
+
+  const isCompletedVisitStatus = (status) => status === 'Hoàn thành' || status === 'Đã khám'
+
   const reportData = (() => {
-    const completedAppointments = appointments
-      .filter((appointment) => appointment.TrangThai === 'Hoàn thành')
+    const appointmentsInMonth = appointments.filter((appointment) =>
+      isInReportMonth(appointment.NgayKham),
+    )
+    const completedAppointments = appointmentsInMonth
+      .filter((appointment) => isCompletedVisitStatus(appointment.TrangThai))
       .map((appointment) => {
         const { config, service } = getConfigService(appointment.MaCauHinh)
         const { netRevenue, insuranceAmount } = calculateRevenueParts(
           appointment.MaBenhAn,
           service.GiaGoc,
+          appointment.GiaCuoi,
         )
         const doctor = doctorSchedules.find(
           (schedule) =>
@@ -1311,40 +1630,85 @@ function AdminDashboard({ user, onLogout }) {
         return {
           id: appointment.MaLichHen,
           type: 'Khám',
+          groupLabel: 'Khám',
           maBenhAn: appointment.MaBenhAn,
           maChiNhanh: config?.MaChiNhanh || '',
           maDichVu: service.MaDichVu,
           tenDichVu: service.TenDichVu,
           chuyenKhoa: service.ChuyenKhoa,
+          loaiDichVu: service.LoaiDichVu,
           giaGoc: service.GiaGoc,
           netRevenue,
           insuranceAmount,
-          maBacSi: doctor?.MaBacSi || '',
+          maBacSi: appointment.MaBacSi || doctor?.MaBacSi || '',
+          ngayPhatSinh: appointment.NgayKham,
         }
       })
 
     const completedLabTests = labTestDetails
-      .filter((test) => test.TrangThai === 'Hoàn thành')
+      .filter((test) => test.TrangThai === 'Hoàn thành' && isInReportMonth(test.NgayThucHien))
       .map((test) => {
         const service = getService(test.MaDichVu)
-        const { netRevenue, insuranceAmount } = calculateRevenueParts(test.MaBenhAn, service.GiaGoc)
+        const { netRevenue, insuranceAmount } = calculateRevenueParts(
+          test.MaBenhAn,
+          service.GiaGoc,
+          test.GiaCuoi,
+        )
 
         return {
           id: test.MaChiTietXN,
           type: 'Xét nghiệm',
+          groupLabel: 'Xét nghiệm',
           maBenhAn: test.MaBenhAn,
           maChiNhanh: test.MaChiNhanh,
           maDichVu: service.MaDichVu,
           tenDichVu: service.TenDichVu,
           chuyenKhoa: service.ChuyenKhoa,
+          loaiDichVu: service.LoaiDichVu,
           giaGoc: service.GiaGoc,
           netRevenue,
           insuranceAmount,
           maBacSi: test.MaBacSi,
+          ngayPhatSinh: test.NgayThucHien,
         }
       })
 
-    const completedFinancialRecords = [...completedAppointments, ...completedLabTests]
+    const completedTreatmentSessions = treatmentRevenueDetails
+      .filter(
+        (treatment) =>
+          treatment.TrangThai === 'Hoàn thành' && isInReportMonth(treatment.NgayThucHien),
+      )
+      .map((treatment) => {
+        const service = getService(treatment.MaDichVu)
+        const { netRevenue, insuranceAmount } = calculateRevenueParts(
+          treatment.MaBenhAn,
+          service.GiaGoc,
+          treatment.GiaCuoi,
+        )
+
+        return {
+          id: treatment.MaLichTrinh,
+          type: 'Điều trị',
+          groupLabel: 'Điều trị nhiều buổi',
+          maBenhAn: treatment.MaBenhAn,
+          maChiNhanh: treatment.MaChiNhanh,
+          maDichVu: service.MaDichVu,
+          tenDichVu: service.TenDichVu,
+          chuyenKhoa: service.ChuyenKhoa,
+          loaiDichVu: service.LoaiDichVu,
+          giaGoc: service.GiaGoc,
+          netRevenue,
+          insuranceAmount,
+          maBacSi: treatment.MaBacSi,
+          ngayPhatSinh: treatment.NgayThucHien,
+        }
+      })
+
+    const completedFinancialRecords = [
+      ...completedAppointments,
+      ...completedLabTests,
+      ...completedTreatmentSessions,
+    ]
     const totalNetRevenue = completedFinancialRecords.reduce(
       (sum, record) => sum + record.netRevenue,
       0,
@@ -1353,20 +1717,26 @@ function AdminDashboard({ user, onLogout }) {
       (sum, record) => sum + record.insuranceAmount,
       0,
     )
-    const cancelledAppointments = appointments.filter((appointment) =>
+    const cancelledAppointments = appointmentsInMonth.filter((appointment) =>
       appointment.TrangThai.includes('Đã hủy'),
     ).length
     const cancellationRate =
-      appointments.length > 0 ? Math.round((cancelledAppointments / appointments.length) * 1000) / 10 : 0
+      appointmentsInMonth.length > 0
+        ? Math.round((cancelledAppointments / appointmentsInMonth.length) * 1000) / 10
+        : 0
 
     const branchRows = branches.map((branch) => {
       const branchRecords = completedFinancialRecords.filter(
         (record) => record.maChiNhanh === branch.MaChiNhanh,
       )
+      const branchCompletedAppointments = completedAppointments.filter(
+        (record) => record.maChiNhanh === branch.MaChiNhanh,
+      )
+
       return {
         maChiNhanh: branch.MaChiNhanh,
         tenChiNhanh: branch.TenChiNhanh,
-        completedCount: branchRecords.length,
+        completedCount: branchCompletedAppointments.length,
         netRevenue: branchRecords.reduce((sum, record) => sum + record.netRevenue, 0),
         insuranceAmount: branchRecords.reduce((sum, record) => sum + record.insuranceAmount, 0),
       }
@@ -1393,20 +1763,16 @@ function AdminDashboard({ user, onLogout }) {
       })
     }
 
-    const topSpecialties = rankBy(
-      completedFinancialRecords,
-      (record) => record.chuyenKhoa,
-      () => 1,
-    )
-    const topServices = rankBy(
+    const serviceContributionRows = rankBy(
       completedFinancialRecords,
       (record) => record.maDichVu,
       (record) => record.netRevenue,
     ).map((item) => ({
       ...item,
       tenDichVu: item.sample.tenDichVu,
+      loaiDichVu: item.sample.groupLabel,
     }))
-    const topDoctors = rankBy(
+    const doctorRows = rankBy(
       completedAppointments,
       (record) => record.maBacSi,
       () => 1,
@@ -1424,10 +1790,10 @@ function AdminDashboard({ user, onLogout }) {
       totalInsuranceAmount,
       completedAppointmentCount: completedAppointments.length,
       cancellationRate,
+      totalServiceUsage: completedFinancialRecords.length,
       branchRows,
-      topSpecialties,
-      topServices,
-      topDoctors,
+      doctorRows,
+      serviceContributionRows,
     }
   })()
 
@@ -1487,7 +1853,7 @@ function AdminDashboard({ user, onLogout }) {
       staffForm.VaiTro === 'Lễ tân' || staffForm.VaiTro === 'Xét nghiệm viên'
 
     if (requiresFixedBranch && !staffForm.MaChiNhanh) {
-      alert('Vui lòng chọn chi nhánh phụ trách.')
+      notify('Vui lòng chọn chi nhánh phụ trách.', 'error')
       return
     }
 
@@ -1499,7 +1865,7 @@ function AdminDashboard({ user, onLogout }) {
       )
 
       if (hasFixedStaffInBranch) {
-        alert('Mỗi chi nhánh chỉ được phép có duy nhất 1 Lễ tân và 1 Xét nghiệm viên cố định!')
+        notify('Mỗi chi nhánh chỉ được phép có duy nhất 1 Lễ tân và 1 Xét nghiệm viên cố định!', 'error')
         return
       }
     }
@@ -1524,7 +1890,7 @@ function AdminDashboard({ user, onLogout }) {
       MatKhau: '',
       MaChiNhanh: '',
     })
-    setFeedback(`Đã tạo tài khoản ${newStaff.MaNhanSu} cho ${newStaff.HoTen}.`)
+    notify(`Đã tạo tài khoản ${newStaff.MaNhanSu} cho ${newStaff.HoTen}.`)
   }
 
   const handleToggleStaffStatus = (maNhanSu) => {
@@ -1550,7 +1916,7 @@ function AdminDashboard({ user, onLogout }) {
     ) {
       setBulkScheduleForm((current) => ({ ...current, MaBacSi: nextActiveDoctor.MaNhanSu }))
     }
-    setFeedback(
+    notify(
       nextStatus === 'active'
         ? `Đã kích hoạt lại tài khoản ${maNhanSu}.`
         : `Đã vô hiệu hóa tài khoản ${maNhanSu}.`,
@@ -1565,7 +1931,7 @@ function AdminDashboard({ user, onLogout }) {
       ),
     )
     setSlotDrafts((current) => ({ ...current, [maCauHinh]: String(nextSlot) }))
-    setFeedback(`Đã cập nhật SlotGioiHan cho cấu hình ${maCauHinh}.`)
+    notify(`Đã cập nhật SlotGioiHan cho cấu hình ${maCauHinh}.`)
   }
 
   const handleUpdateServicePrice = (maDichVu) => {
@@ -1576,7 +1942,7 @@ function AdminDashboard({ user, onLogout }) {
       ),
     )
     setPriceDrafts((current) => ({ ...current, [maDichVu]: String(nextPrice) }))
-    setFeedback(`Đã cập nhật giá chung cho dịch vụ ${maDichVu}.`)
+    notify(`Đã cập nhật giá chung cho dịch vụ ${maDichVu}.`)
   }
 
   const handleNewServiceFormChange = (field, value) => {
@@ -1590,12 +1956,12 @@ function AdminDashboard({ user, onLogout }) {
     const giaGoc = Math.max(0, Number(newServiceForm.GiaGoc || 0))
 
     if (!maDichVu || !tenDichVu || giaGoc <= 0) {
-      setFeedback('Vui lòng nhập đầy đủ mã dịch vụ, tên dịch vụ và giá gốc lớn hơn 0.')
+      notify('Vui lòng nhập đầy đủ mã dịch vụ, tên dịch vụ và giá gốc lớn hơn 0.', 'error')
       return
     }
 
     if (services.some((service) => service.MaDichVu === maDichVu)) {
-      setFeedback(`Mã dịch vụ ${maDichVu} đã tồn tại trong danh mục.`)
+      notify(`Mã dịch vụ ${maDichVu} đã tồn tại trong danh mục.`, 'error')
       return
     }
 
@@ -1617,7 +1983,7 @@ function AdminDashboard({ user, onLogout }) {
       ChuyenKhoa: 'Nội tổng quát',
       GiaGoc: '',
     })
-    setFeedback(`Đã thêm dịch vụ ${maDichVu} vào danh mục gốc.`)
+    notify(`Đã thêm dịch vụ ${maDichVu} vào danh mục gốc.`)
   }
 
   const handleDeleteRootService = (maDichVu) => {
@@ -1644,7 +2010,7 @@ function AdminDashboard({ user, onLogout }) {
       })
       return nextDrafts
     })
-    setFeedback(
+    notify(
       `Đã xóa dịch vụ gốc ${maDichVu} và ${relatedConfigs.length} cấu hình chi nhánh liên quan.`,
     )
   }
@@ -1660,12 +2026,12 @@ function AdminDashboard({ user, onLogout }) {
     const diaChi = branchForm.DiaChi.trim()
 
     if (!maChiNhanh || !tenChiNhanh || !diaChi) {
-      setFeedback('Vui lòng nhập đầy đủ mã chi nhánh, tên chi nhánh và địa chỉ.')
+      notify('Vui lòng nhập đầy đủ mã chi nhánh, tên chi nhánh và địa chỉ.', 'error')
       return
     }
 
     if (branches.some((branch) => branch.MaChiNhanh === maChiNhanh)) {
-      setFeedback(`Mã chi nhánh ${maChiNhanh} đã tồn tại.`)
+      notify(`Mã chi nhánh ${maChiNhanh} đã tồn tại.`, 'error')
       return
     }
 
@@ -1679,7 +2045,7 @@ function AdminDashboard({ user, onLogout }) {
     setBranches((current) => [...current, newBranch])
     setDistributionForm((current) => ({ ...current, MaChiNhanh: maChiNhanh }))
     setBranchForm({ MaChiNhanh: '', TenChiNhanh: '', DiaChi: '', SDT: '' })
-    setFeedback(`Đã thêm chi nhánh ${maChiNhanh}.`)
+    notify(`Đã thêm chi nhánh ${maChiNhanh}.`)
   }
 
   const handleDeleteRootBranch = (maChiNhanh) => {
@@ -1711,7 +2077,7 @@ function AdminDashboard({ user, onLogout }) {
       })
       return nextDrafts
     })
-    setFeedback(
+    notify(
       `Đã xóa chi nhánh ${maChiNhanh}, ${relatedConfigs.length} cấu hình dịch vụ và ${relatedSchedules.length} lịch trực liên quan.`,
     )
   }
@@ -1729,7 +2095,7 @@ function AdminDashboard({ user, onLogout }) {
   const handleApplyBranchService = (event) => {
     event.preventDefault()
     if (!distributionForm.MaChiNhanh || !distributionForm.MaDichVu) {
-      setFeedback('Cần có ít nhất một chi nhánh và một dịch vụ để áp dụng cấu hình.')
+      notify('Cần có ít nhất một chi nhánh và một dịch vụ để áp dụng cấu hình.', 'error')
       return
     }
 
@@ -1749,7 +2115,7 @@ function AdminDashboard({ user, onLogout }) {
         ),
       )
       setSlotDrafts((current) => ({ ...current, [existingConfig.MaCauHinh]: String(slot) }))
-      setFeedback(`Đã cập nhật và hiển thị lại cấu hình ${existingConfig.MaCauHinh}.`)
+      notify(`Đã cập nhật và hiển thị lại cấu hình ${existingConfig.MaCauHinh}.`)
       return
     }
 
@@ -1764,7 +2130,7 @@ function AdminDashboard({ user, onLogout }) {
 
     setBranchServices((current) => [...current, newConfig])
     setSlotDrafts((current) => ({ ...current, [maCauHinh]: String(slot) }))
-    setFeedback(`Đã áp dụng dịch vụ ${distributionForm.MaDichVu} cho ${distributionForm.MaChiNhanh}.`)
+    notify(`Đã áp dụng dịch vụ ${distributionForm.MaDichVu} cho ${distributionForm.MaChiNhanh}.`)
   }
 
   const handleToggleBranchService = (maCauHinh) => {
@@ -1776,7 +2142,7 @@ function AdminDashboard({ user, onLogout }) {
         config.MaCauHinh === maCauHinh ? { ...config, TrangThai: nextStatus } : config,
       ),
     )
-    setFeedback(
+    notify(
       nextStatus === 'active'
         ? `Đã hiện lại cấu hình ${maCauHinh}.`
         : `Đã ẩn cấu hình ${maCauHinh}.`,
@@ -1790,7 +2156,7 @@ function AdminDashboard({ user, onLogout }) {
       delete nextDrafts[maCauHinh]
       return nextDrafts
     })
-    setFeedback(`Đã xóa cấu hình ${maCauHinh} khỏi chi nhánh.`)
+    notify(`Đã xóa cấu hình ${maCauHinh} khỏi chi nhánh.`)
   }
 
   const handleBulkScheduleFormChange = (field, value) => {
@@ -1832,22 +2198,22 @@ function AdminDashboard({ user, onLogout }) {
       .map(([key]) => key)
 
     if (!activeDoctor) {
-      setFeedback('Chỉ có thể xếp lịch cho bác sĩ đang active.')
+      notify('Chỉ có thể xếp lịch cho bác sĩ đang active.', 'error')
       return
     }
 
     if (!bulkScheduleForm.MaChiNhanh) {
-      setFeedback('Vui lòng chọn chi nhánh trước khi xếp lịch.')
+      notify('Vui lòng chọn chi nhánh trước khi xếp lịch.', 'error')
       return
     }
 
     if (!bulkScheduleForm.TuNgay || !bulkScheduleForm.DenNgay) {
-      setFeedback('Vui lòng chọn đầy đủ khoảng ngày.')
+      notify('Vui lòng chọn đầy đủ khoảng ngày.', 'error')
       return
     }
 
     if (selectedKeys.length === 0) {
-      setFeedback('Vui lòng tích ít nhất một ô Thứ/Ca trong ma trận lịch trực.')
+      notify('Vui lòng tích ít nhất một ô Thứ/Ca trong ma trận lịch trực.', 'error')
       return
     }
 
@@ -1855,7 +2221,7 @@ function AdminDashboard({ user, onLogout }) {
     const endDate = parseDateInput(bulkScheduleForm.DenNgay)
 
     if (startDate > endDate) {
-      setFeedback('Khoảng ngày không hợp lệ: Từ ngày phải nhỏ hơn hoặc bằng Đến ngày.')
+      notify('Khoảng ngày không hợp lệ: Từ ngày phải nhỏ hơn hoặc bằng Đến ngày.', 'error')
       return
     }
 
@@ -1898,28 +2264,18 @@ function AdminDashboard({ user, onLogout }) {
     }
 
     if (newSchedules.length === 0) {
-      setFeedback('Không có lịch trực mới được tạo vì toàn bộ lựa chọn đã trùng lịch hiện có.')
+      notify('Không có lịch trực mới được tạo vì toàn bộ lựa chọn đã trùng lịch hiện có.', 'error')
       return
     }
 
     setDoctorSchedules((current) => [...current, ...newSchedules])
-    setFeedback(`Đã xếp ${newSchedules.length} ca trực mới cho ${getDoctorName(bulkScheduleForm.MaBacSi)}.`)
+    notify(`Đã xếp ${newSchedules.length} ca trực mới cho ${getDoctorName(bulkScheduleForm.MaBacSi)}.`)
   }
 
   const handleCancelSchedule = (schedule) => {
-    const configIds = branchServices
-      .filter((config) => config.MaChiNhanh === schedule.MaChiNhanh)
-      .map((config) => config.MaCauHinh)
-
-    const cancellableStatuses = ['Đã xác nhận', 'Chờ khám', 'Đang khám']
-
-    const isAffectedAppointment = (appointment) =>
-      appointment.NgayKham === schedule.NgayTruc &&
-      appointment.CaKham === schedule.CaTruc &&
-      configIds.includes(appointment.MaCauHinh) &&
-      cancellableStatuses.includes(appointment.TrangThai)
-
-    const affectedCount = appointments.filter(isAffectedAppointment).length
+    const affectedAppointments = getAffectedAppointmentsForSchedule(schedule)
+    const affectedCount = affectedAppointments.length
+    const affectedAppointmentIds = new Set(affectedAppointments.map((appointment) => appointment.MaLichHen))
 
     if (affectedCount > 0) {
       const confirmed = window.confirm(
@@ -1933,7 +2289,7 @@ function AdminDashboard({ user, onLogout }) {
 
     setAppointments((current) =>
       current.map((appointment) =>
-        isAffectedAppointment(appointment)
+        affectedAppointmentIds.has(appointment.MaLichHen)
           ? { ...appointment, TrangThai: 'Đã hủy (Hệ thống hoàn tiền)' }
           : appointment,
       ),
@@ -1947,13 +2303,109 @@ function AdminDashboard({ user, onLogout }) {
       ),
     )
 
-    if (affectedCount > 0) {
-      setFeedback(
-        `Đã hủy ca trực ${schedule.MaLichTruc} và tự động hoàn tiền cho ${affectedCount} lịch hẹn.`,
-      )
-    } else {
-      setFeedback(`Đã hủy ca trực ${schedule.MaLichTruc}.`)
+    const notificationCount = pushScheduleNotifications(
+      affectedAppointments,
+      () =>
+        `⚠️ CẢNH BÁO SỰ CỐ: Ca khám ngày ${schedule.NgayTruc} - Ca ${schedule.CaTruc} của bạn đã bị hủy do bác sĩ gặp sự cố đột xuất. Vui lòng đặt lại lịch mới hoặc liên hệ hotline để được hỗ trợ xếp lịch lại!`,
+    )
+
+    addScheduleAdjustment?.({
+      type: 'cancel',
+      MaLichTruc: schedule.MaLichTruc,
+      MaBacSi: schedule.MaBacSi,
+      MaChiNhanh: schedule.MaChiNhanh,
+      NgayTruc: schedule.NgayTruc,
+      CaTruc: schedule.CaTruc,
+    })
+
+    notify(
+      notificationCount > 0
+        ? `Đã hủy ca trực và phát thông báo cảnh báo đến ${notificationCount} bệnh nhân bị ảnh hưởng!`
+        : `Đã hủy ca trực ${schedule.MaLichTruc}.`,
+    )
+  }
+
+  const getTransferDoctorOptions = (schedule) => {
+    if (!schedule) return []
+
+    const currentDoctor = staffList.find((staff) => staff.MaNhanSu === schedule.MaBacSi)
+    const sameSpecialtyDoctors = staffList.filter(
+      (staff) =>
+        staff.VaiTro === 'Bác sĩ' &&
+        staff.TrangThai === 'active' &&
+        staff.MaNhanSu !== schedule.MaBacSi &&
+        staff.ChuyenKhoa === currentDoctor?.ChuyenKhoa,
+    )
+
+    if (sameSpecialtyDoctors.length > 0) return sameSpecialtyDoctors
+
+    return staffList.filter(
+      (staff) =>
+        staff.VaiTro === 'Bác sĩ' &&
+        staff.TrangThai === 'active' &&
+        staff.MaNhanSu !== schedule.MaBacSi,
+    )
+  }
+
+  const handleOpenDoctorTransfer = (schedule) => {
+    const options = getTransferDoctorOptions(schedule)
+    setDoctorTransferModal({
+      show: true,
+      schedule,
+      nextDoctorId: options[0]?.MaNhanSu || '',
+    })
+  }
+
+  const handleCloseDoctorTransfer = () => {
+    setDoctorTransferModal({ show: false, schedule: null, nextDoctorId: '' })
+  }
+
+  const handleConfirmDoctorTransfer = () => {
+    const schedule = doctorTransferModal.schedule
+    const nextDoctorId = doctorTransferModal.nextDoctorId
+
+    if (!schedule || !nextDoctorId) {
+      notify('Vui lòng chọn bác sĩ mới để điều chuyển ca trực.', 'error')
+      return
     }
+
+    const nextDoctor = staffList.find((staff) => staff.MaNhanSu === nextDoctorId)
+    const affectedAppointments = getAffectedAppointmentsForSchedule(schedule)
+    const affectedAppointmentIds = new Set(affectedAppointments.map((appointment) => appointment.MaLichHen))
+
+    setDoctorSchedules((current) =>
+      current.map((item) =>
+        item.MaLichTruc === schedule.MaLichTruc ? { ...item, MaBacSi: nextDoctorId } : item,
+      ),
+    )
+    setAppointments((current) =>
+      current.map((appointment) =>
+        affectedAppointmentIds.has(appointment.MaLichHen)
+          ? { ...appointment, MaBacSi: nextDoctorId }
+          : appointment,
+      ),
+    )
+
+    const notificationCount = pushScheduleNotifications(
+      affectedAppointments,
+      () =>
+        `📢 THÔNG BÁO THAY ĐỔI: Ca khám ngày ${schedule.NgayTruc} - Ca ${schedule.CaTruc} của bạn đã được điều chuyển sang Bác sĩ ${nextDoctor?.HoTen || nextDoctorId} phụ trách do thay đổi lịch công tác của viện. Giờ khám giữ nguyên không đổi!`,
+    )
+
+    addScheduleAdjustment?.({
+      type: 'transfer',
+      MaLichTruc: schedule.MaLichTruc,
+      oldMaBacSi: schedule.MaBacSi,
+      newMaBacSi: nextDoctorId,
+      MaChiNhanh: schedule.MaChiNhanh,
+      NgayTruc: schedule.NgayTruc,
+      CaTruc: schedule.CaTruc,
+    })
+
+    handleCloseDoctorTransfer()
+    notify(
+      `Đã điều chuyển bác sĩ trực và phát thông báo cảnh báo đến ${notificationCount} bệnh nhân bị ảnh hưởng!`,
+    )
   }
 
   const renderStaffManagement = () => (
@@ -2327,7 +2779,7 @@ function AdminDashboard({ user, onLogout }) {
               className="admin-input"
               value={branchForm.TenChiNhanh}
               onChange={(event) => handleBranchFormChange('TenChiNhanh', event.target.value)}
-              placeholder="Smart Clinic - Cơ sở ..."
+              placeholder="Medicare - Cơ sở ..."
               required
             />
           </label>
@@ -2443,7 +2895,7 @@ function AdminDashboard({ user, onLogout }) {
               <option value="all">Tất cả</option>
               {branches.map((branch) => (
                 <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
-                  {branch.TenChiNhanh.replace('Smart Clinic - Cơ sở ', '')}
+                  {branch.TenChiNhanh.replace('Medicare - Cơ sở ', '')}
                 </option>
               ))}
             </select>
@@ -2646,12 +3098,21 @@ function AdminDashboard({ user, onLogout }) {
         <h2>Danh sách lịch trực</h2>
         <div className="admin-filter-row">
           <label>
-            Lọc theo Ngày
+            Từ ngày
             <input
               className="admin-input"
               type="date"
-              value={scheduleFilters.NgayTruc}
-              onChange={(event) => handleScheduleFilterChange('NgayTruc', event.target.value)}
+              value={scheduleFilters.TuNgay}
+              onChange={(event) => handleScheduleFilterChange('TuNgay', event.target.value)}
+            />
+          </label>
+          <label>
+            Đến ngày
+            <input
+              className="admin-input"
+              type="date"
+              value={scheduleFilters.DenNgay}
+              onChange={(event) => handleScheduleFilterChange('DenNgay', event.target.value)}
             />
           </label>
           <label>
@@ -2700,14 +3161,24 @@ function AdminDashboard({ user, onLogout }) {
                       </span>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="admin-danger-button"
-                        onClick={() => handleCancelSchedule(schedule)}
-                        disabled={isCancelled}
-                      >
-                        {isCancelled ? 'Đã hủy' : 'Hủy ca trực'}
-                      </button>
+                      <div className="admin-actions-row">
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => handleOpenDoctorTransfer(schedule)}
+                          disabled={isCancelled}
+                        >
+                          🔄 Đổi bác sĩ
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-danger-button"
+                          onClick={() => handleCancelSchedule(schedule)}
+                          disabled={isCancelled}
+                        >
+                          {isCancelled ? 'Đã hủy' : 'Hủy ca trực'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -2721,40 +3192,119 @@ function AdminDashboard({ user, onLogout }) {
           </table>
         </div>
       </section>
+
+      {doctorTransferModal.show && (
+        <div className="admin-modal-overlay">
+          <section className="admin-transfer-modal">
+            <button
+              type="button"
+              className="admin-modal-close"
+              onClick={handleCloseDoctorTransfer}
+              aria-label="Đóng modal điều chuyển bác sĩ"
+            >
+              ×
+            </button>
+            <span className="admin-section-kicker">Điều chuyển nhân sự</span>
+            <h2>Điều chuyển nhân sự ca trực</h2>
+            <div className="transfer-summary-grid">
+              <div>
+                <span>Ngày trực</span>
+                <strong>{doctorTransferModal.schedule?.NgayTruc}</strong>
+              </div>
+              <div>
+                <span>Ca trực</span>
+                <strong>Ca {doctorTransferModal.schedule?.CaTruc}</strong>
+              </div>
+              <div>
+                <span>Chi nhánh</span>
+                <strong>{getBranchName(doctorTransferModal.schedule?.MaChiNhanh)}</strong>
+              </div>
+              <div>
+                <span>Bác sĩ cũ</span>
+                <strong>{getDoctorName(doctorTransferModal.schedule?.MaBacSi)}</strong>
+              </div>
+            </div>
+            <label className="transfer-select-field">
+              Chọn Bác sĩ mới
+              <select
+                className="admin-input"
+                value={doctorTransferModal.nextDoctorId}
+                onChange={(event) =>
+                  setDoctorTransferModal((current) => ({
+                    ...current,
+                    nextDoctorId: event.target.value,
+                  }))
+                }
+              >
+                {getTransferDoctorOptions(doctorTransferModal.schedule).map((doctor) => (
+                  <option key={doctor.MaNhanSu} value={doctor.MaNhanSu}>
+                    {doctor.MaNhanSu} - {doctor.HoTen} ({doctor.ChuyenKhoa})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="transfer-modal-actions">
+              <button type="button" className="admin-primary-button" onClick={handleConfirmDoctorTransfer}>
+                Xác nhận đổi
+              </button>
+              <button type="button" className="admin-secondary-button" onClick={handleCloseDoctorTransfer}>
+                Hủy bỏ
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 
   const renderReports = () => (
     <div className="admin-stack">
+      <section className="admin-card monthly-report-header">
+        <div>
+          <span className="admin-section-kicker">Monthly Analytical Report</span>
+          <h2>Báo cáo tài chính và vận hành theo tháng</h2>
+          <p>{getReportMonthRangeLabel(reportMonth)}</p>
+        </div>
+        <label className="month-picker-field">
+          Chọn tháng báo cáo
+          <input
+            className="admin-input"
+            type="month"
+            value={reportMonth}
+            onChange={(event) => setReportMonth(event.target.value || '2026-06')}
+          />
+        </label>
+      </section>
+
       <div className="finance-kpi-grid">
         <div className="finance-kpi-card revenue">
           <DollarSign size={24} />
-          <span>Tổng Doanh thu Thực tế</span>
+          <span>Tổng Doanh thu Tháng</span>
           <strong>{formatMoney(reportData.totalNetRevenue)}</strong>
-          <small>Sau khi trừ phần BHYT chi trả</small>
+          <small>Chỉ tính dịch vụ phát sinh trong tháng đã chọn</small>
         </div>
         <div className="finance-kpi-card insurance">
           <ClipboardList size={24} />
-          <span>Tổng Quỹ BHYT Chi trả</span>
+          <span>Tổng BHYT Chi Trả</span>
           <strong>{formatMoney(reportData.totalInsuranceAmount)}</strong>
-          <small>Phần bảo hiểm hoàn trả cho phòng khám</small>
+          <small>Phần bảo hiểm hỗ trợ bệnh nhân trong tháng</small>
         </div>
         <div className="finance-kpi-card success">
           <Activity size={24} />
-          <span>Tổng số ca khám thành công</span>
+          <span>Tổng Lượt Khám</span>
           <strong>{reportData.completedAppointmentCount}</strong>
-          <small>Chỉ tính lịch hẹn trạng thái Hoàn thành</small>
+          <small>Trạng thái Hoàn thành hoặc Đã khám trong tháng</small>
         </div>
         <div className="finance-kpi-card danger">
           <Users size={24} />
-          <span>Tỷ lệ hủy hẹn</span>
+          <span>Tỷ lệ hủy hẹn trong tháng</span>
           <strong>{reportData.cancellationRate}%</strong>
-          <small>Tính trên tổng số lịch hẹn hiện có</small>
+          <small>Đối chiếu trên lịch hẹn phát sinh cùng tháng</small>
         </div>
       </div>
 
       <section className="admin-card">
-        <h2>Hiệu suất và Doanh thu theo Chi nhánh</h2>
+        <h2>Hiệu suất Chi nhánh theo tháng</h2>
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
@@ -2780,67 +3330,63 @@ function AdminDashboard({ user, onLogout }) {
       </section>
 
       <section className="admin-card">
-        <h2>Bảng xếp hạng xu hướng vận hành</h2>
-        <div className="ranking-grid">
-          <div className="ranking-panel">
-            <h3>Top Chuyên Khoa</h3>
-            <table className="ranking-table">
-              <thead>
-                <tr>
-                  <th>Chuyên khoa</th>
-                  <th>Lượt</th>
+        <h2>Bảng xếp hạng Bác sĩ Xuất sắc trong tháng</h2>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Thứ hạng</th>
+                <th>Bác sĩ</th>
+                <th>Chuyên khoa</th>
+                <th>Số ca đã khám</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportData.doctorRows.map((item, index) => (
+                <tr key={item.key}>
+                  <td>#{index + 1}</td>
+                  <td>{item.hoTen}</td>
+                  <td>{item.chuyenKhoa}</td>
+                  <td>{item.count}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {reportData.topSpecialties.slice(0, 5).map((item) => (
-                  <tr key={item.key}>
-                    <td>{item.key}</td>
-                    <td>{item.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {reportData.doctorRows.length === 0 && (
+                <tr>
+                  <td colSpan="4">Chưa có bác sĩ nào phát sinh lượt khám hoàn thành trong tháng này.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-          <div className="ranking-panel">
-            <h3>Top Dịch Vụ Thịnh Hành</h3>
+      <section className="admin-card">
+        <h2>Danh mục Dịch vụ đóng góp theo tháng</h2>
+        <div className="ranking-grid monthly-service-grid">
+          <div className="ranking-panel wide">
             <table className="ranking-table">
               <thead>
                 <tr>
+                  <th>Loại dịch vụ</th>
                   <th>Dịch vụ</th>
-                  <th>Doanh thu</th>
+                  <th>Lượt sử dụng</th>
+                  <th>Tổng tiền</th>
                 </tr>
               </thead>
               <tbody>
-                {reportData.topServices.slice(0, 5).map((item) => (
+                {reportData.serviceContributionRows.map((item) => (
                   <tr key={item.key}>
+                    <td>{item.loaiDichVu}</td>
                     <td>{item.tenDichVu}</td>
+                    <td>{item.count}</td>
                     <td>{formatMoney(item.value)}</td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="ranking-panel">
-            <h3>Top Bác Sĩ Xuất Sắc</h3>
-            <table className="ranking-table">
-              <thead>
-                <tr>
-                  <th>Bác sĩ</th>
-                  <th>Số ca</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportData.topDoctors.slice(0, 5).map((item) => (
-                  <tr key={item.key}>
-                    <td>
-                      <strong>{item.hoTen}</strong>
-                      <span>{item.chuyenKhoa}</span>
-                    </td>
-                    <td>{item.count}</td>
+                {reportData.serviceContributionRows.length === 0 && (
+                  <tr>
+                    <td colSpan="4">Chưa có dịch vụ nào phát sinh doanh thu trong tháng này.</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -2909,7 +3455,7 @@ function AdminDashboard({ user, onLogout }) {
       <section className="admin-content">
         <header className="admin-topbar">
           <div>
-            <span className="admin-kicker">Smart Clinic</span>
+            <span className="admin-kicker">Medicare</span>
             <h1>{navItems.find((item) => item.key === activeMenu)?.label}</h1>
           </div>
           {feedback && <p className="admin-feedback">{feedback}</p>}
@@ -2921,7 +3467,7 @@ function AdminDashboard({ user, onLogout }) {
   )
 }
 
-function DoctorDashboard({ user, onLogout }) {
+function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments = [] }) {
   const [doctorProfile, setDoctorProfile] = useState({
     MaBacSi: user?.MaBacSi || user?.id || 'BS001',
     HoTen: user?.HoTen || user?.name || 'Nguyễn Văn An',
@@ -2929,7 +3475,7 @@ function DoctorDashboard({ user, onLogout }) {
     SDT: user?.SDT || '0911222333',
     MatKhau: user?.MatKhau || '123456',
     MaChiNhanh: user?.MaChiNhanh || 'CN_CG',
-    TenChiNhanh: user?.TenChiNhanh || 'Smart Clinic - Cơ sở Cầu Giấy',
+    TenChiNhanh: user?.TenChiNhanh || 'Medicare - Cơ sở Cầu Giấy',
   })
   const [contactForm, setContactForm] = useState({ SDT: doctorProfile.SDT })
   const [passwordForm, setPasswordForm] = useState({
@@ -2953,7 +3499,14 @@ function DoctorDashboard({ user, onLogout }) {
     MaDieuTri: 'DT_TRUYEN_DICH',
     TongSoBuoi: '3',
   })
+  const [diagnosisSearch, setDiagnosisSearch] = useState('K29 - Viêm dạ dày và tá tràng')
+  const [medicineSearch, setMedicineSearch] = useState('Omeprazole 20mg')
+  const [currentPrescription, setCurrentPrescription] = useState([])
   const [feedback, setFeedback] = useState('')
+  const notify = (message, type = 'success') => {
+    setFeedback(message)
+    showNotification?.(message, type)
+  }
   const [patients] = useState([
     {
       MaBenhAn: 'BN001',
@@ -3043,7 +3596,37 @@ function DoctorDashboard({ user, onLogout }) {
 
     return generatedSchedules
   }
-  const [doctorSchedules] = useState(() => generateDoctorSchedules())
+  const [baseDoctorSchedules] = useState(() => generateDoctorSchedules())
+  const doctorSchedules = useMemo(() => {
+    let effectiveSchedules = [...baseDoctorSchedules]
+    const orderedAdjustments = [...scheduleAdjustments].reverse()
+
+    orderedAdjustments.forEach((adjustment) => {
+      const matchesOriginalSlot = (schedule) =>
+        schedule.MaChiNhanh === adjustment.MaChiNhanh &&
+        schedule.NgayTruc === adjustment.NgayTruc &&
+        Number(schedule.CaTruc) === Number(adjustment.CaTruc) &&
+        schedule.MaBacSi === (adjustment.oldMaBacSi || adjustment.MaBacSi)
+
+      if (adjustment.type === 'cancel') {
+        effectiveSchedules = effectiveSchedules.filter((schedule) => !matchesOriginalSlot(schedule))
+      }
+
+      if (adjustment.type === 'transfer') {
+        effectiveSchedules = effectiveSchedules.filter((schedule) => !matchesOriginalSlot(schedule))
+        effectiveSchedules.push({
+          MaLichTruc: adjustment.MaLichTruc,
+          MaBacSi: adjustment.newMaBacSi,
+          MaChiNhanh: adjustment.MaChiNhanh,
+          NgayTruc: adjustment.NgayTruc,
+          CaTruc: adjustment.CaTruc,
+          TrangThai: 'Đang hoạt động',
+        })
+      }
+    })
+
+    return effectiveSchedules
+  }, [baseDoctorSchedules, scheduleAdjustments])
   const [bookings, setBookings] = useState([
     {
       MaLichHen: 'LH_DR_001',
@@ -3135,6 +3718,7 @@ function DoctorDashboard({ user, onLogout }) {
     { MaBenh: 'K21', TenBenh: 'Trào ngược dạ dày thực quản' },
     { MaBenh: 'J01', TenBenh: 'Viêm xoang cấp' },
     { MaBenh: 'K05', TenBenh: 'Viêm nướu và bệnh nha chu' },
+    { MaBenh: 'ICD_MMLL', TenBenh: 'Mệt mỏi lao lực' },
   ])
   const [visitRecords, setVisitRecords] = useState([
     {
@@ -3301,6 +3885,20 @@ function DoctorDashboard({ user, onLogout }) {
 
   const labServices = services.filter((service) => service.LoaiDichVu === 'Xét nghiệm')
   const treatmentServices = services.filter((service) => service.LoaiDichVu === 'Điều trị')
+  const filteredDiseaseSuggestions = diseases
+    .filter((disease) => {
+      const keyword = diagnosisSearch.trim().toLowerCase()
+      if (!keyword) return true
+      return [disease.MaBenh, disease.TenBenh].join(' ').toLowerCase().includes(keyword)
+    })
+    .slice(0, 6)
+  const filteredMedicineSuggestions = medicines
+    .filter((medicine) => {
+      const keyword = medicineSearch.trim().toLowerCase()
+      if (!keyword) return true
+      return [medicine.MaThuoc, medicine.TenThuoc, medicine.DonViTinh].join(' ').toLowerCase().includes(keyword)
+    })
+    .slice(0, 6)
   const mySchedules = doctorSchedules
     .filter(
       (schedule) =>
@@ -3402,26 +4000,25 @@ function DoctorDashboard({ user, onLogout }) {
   const handleUpdatePhone = (event) => {
     event.preventDefault()
     setDoctorProfile((current) => ({ ...current, SDT: contactForm.SDT.trim() }))
-    setFeedback('Đã cập nhật số điện thoại liên hệ.')
+    notify('Đã cập nhật số điện thoại liên hệ.')
   }
 
   const handleChangePassword = (event) => {
     event.preventDefault()
     if (passwordForm.oldPassword !== doctorProfile.MatKhau) {
-      alert('Mật khẩu cũ không chính xác.')
+      notify('Mật khẩu cũ không chính xác.', 'error')
       return
     }
 
     if (!passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword) {
-      alert('Mật khẩu mới và xác nhận mật khẩu không khớp.')
+      notify('Mật khẩu mới và xác nhận mật khẩu không khớp.', 'error')
       return
     }
 
     setDoctorProfile((current) => ({ ...current, MatKhau: passwordForm.newPassword }))
     setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' })
     setShowPasswordForm(false)
-    alert('Đổi mật khẩu thành công!')
-    setFeedback('Thông tin bảo mật tài khoản đã được cập nhật.')
+    notify('Đổi mật khẩu thành công!')
   }
 
   const handleInvitePatient = (booking) => {
@@ -3435,16 +4032,68 @@ function DoctorDashboard({ user, onLogout }) {
       .filter((visit) => visit.MaBenhAn === booking.MaBenhAn)
       .sort((a, b) => b.NgayKham.localeCompare(a.NgayKham))
     setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
-    setFeedback(`Đã mời ${getPatient(booking.MaBenhAn).HoTen} vào khám.`)
+    notify(`Đã mời ${getPatient(booking.MaBenhAn).HoTen} vào khám.`)
   }
 
   const handleClinicalFormChange = (field, value) => {
     setClinicalForm((current) => ({ ...current, [field]: value }))
   }
 
+  const handleSelectDisease = (disease) => {
+    setClinicalForm((current) => ({ ...current, MaBenh: disease.MaBenh }))
+    setDiagnosisSearch(`${disease.MaBenh} - ${disease.TenBenh}`)
+  }
+
+  const handleSelectMedicine = (medicine) => {
+    setClinicalForm((current) => ({ ...current, MaThuoc: medicine.MaThuoc }))
+    setMedicineSearch(medicine.TenThuoc)
+  }
+
+  const handleAddPrescriptionItem = () => {
+    const medicine = getMedicine(clinicalForm.MaThuoc)
+    const quantity = Number(clinicalForm.SoLuong)
+    const dosage = clinicalForm.LieuDung.trim()
+
+    if (!medicine.MaThuoc) {
+      notify('Vui lòng chọn thuốc từ danh mục gợi ý.', 'error')
+      return
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      notify('Số lượng thuốc phải là số nguyên dương.', 'error')
+      return
+    }
+
+    if (!dosage) {
+      notify('Vui lòng nhập liều dùng/lời dặn thuốc.', 'error')
+      return
+    }
+
+    setCurrentPrescription((current) => [
+      ...current,
+      {
+        TempId: `TEMP_RX_${Date.now()}_${current.length + 1}`,
+        MaThuoc: medicine.MaThuoc,
+        SoLuong: quantity,
+        LieuDung: dosage,
+      },
+    ])
+    setClinicalForm((current) => ({
+      ...current,
+      SoLuong: '10',
+      LieuDung: '',
+    }))
+    setMedicineSearch('')
+    notify(`Đã thêm ${medicine.TenThuoc} vào đơn thuốc.`)
+  }
+
+  const handleRemovePrescriptionItem = (tempId) => {
+    setCurrentPrescription((current) => current.filter((item) => item.TempId !== tempId))
+  }
+
   const handleAddLabOrder = () => {
     if (!activeBooking) {
-      alert('Vui lòng mời bệnh nhân vào khám trước khi chỉ định xét nghiệm.')
+      notify('Vui lòng mời bệnh nhân vào khám trước khi chỉ định xét nghiệm.', 'error')
       return
     }
 
@@ -3458,7 +4107,7 @@ function DoctorDashboard({ user, onLogout }) {
       PaymentToken: null,
     }
     setLabDetails((current) => [...current, newLabOrder])
-    setFeedback(`Đã thêm chỉ định ${getService(clinicalForm.MaXetNghiem).TenDichVu}.`)
+    notify(`Đã thêm chỉ định ${getService(clinicalForm.MaXetNghiem).TenDichVu}.`)
   }
 
   const handleMockLabResult = (maChiTietXN) => {
@@ -3475,18 +4124,18 @@ function DoctorDashboard({ user, onLogout }) {
           : lab,
       ),
     )
-    setFeedback('Đã mô phỏng phòng Lab trả kết quả realtime.')
+    notify('Đã mô phỏng phòng Lab trả kết quả realtime.')
   }
 
   const handleAddTreatmentPlan = () => {
     if (!activeBooking) {
-      alert('Vui lòng mời bệnh nhân vào khám trước khi chỉ định điều trị.')
+      notify('Vui lòng mời bệnh nhân vào khám trước khi chỉ định điều trị.', 'error')
       return
     }
 
     const totalSessions = Number(clinicalForm.TongSoBuoi)
     if (!Number.isInteger(totalSessions) || totalSessions <= 0) {
-      alert('Tổng số buổi điều trị phải là số nguyên dương.')
+      notify('Tổng số buổi điều trị phải là số nguyên dương.', 'error')
       return
     }
 
@@ -3499,13 +4148,13 @@ function DoctorDashboard({ user, onLogout }) {
       TrangThai: 'Chưa thực hiện',
     }
     setTreatmentSchedules((current) => [...current, newTreatment])
-    setFeedback(`Đã chỉ định liệu trình ${getService(clinicalForm.MaDieuTri).TenDichVu}.`)
+    notify(`Đã chỉ định liệu trình ${getService(clinicalForm.MaDieuTri).TenDichVu}.`)
   }
 
   const handlePauseForLab = () => {
     if (!activeBooking) return
     if (currentLabOrders.length === 0) {
-      alert('Chưa có chỉ định xét nghiệm nào để chuyển ca sang trạng thái chờ kết quả.')
+      notify('Chưa có chỉ định xét nghiệm nào để chuyển ca sang trạng thái chờ kết quả.', 'error')
       return
     }
 
@@ -3517,7 +4166,7 @@ function DoctorDashboard({ user, onLogout }) {
       ),
     )
     setActiveBookingId('')
-    setFeedback('Đã tạm hoãn ca khám và chuyển bệnh nhân sang danh sách chờ kết luận.')
+    notify('Đã tạm hoãn ca khám và chuyển bệnh nhân sang danh sách chờ kết luận.')
   }
 
   const handleRecallPatient = (booking) => {
@@ -3531,13 +4180,13 @@ function DoctorDashboard({ user, onLogout }) {
       .filter((visit) => visit.MaBenhAn === booking.MaBenhAn)
       .sort((a, b) => b.NgayKham.localeCompare(a.NgayKham))
     setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
-    setFeedback(`Đã gọi lại ${getPatient(booking.MaBenhAn).HoTen} vào phòng để kết luận.`)
+    notify(`Đã gọi lại ${getPatient(booking.MaBenhAn).HoTen} vào phòng để kết luận.`)
   }
 
   const handleCompleteExam = () => {
     if (!activeBooking || !activePatient) return
     if (!allCurrentLabResultsReady) {
-      alert('Chưa có đủ kết quả xét nghiệm để hoàn thành lượt khám.')
+      notify('Chưa có đủ kết quả xét nghiệm để hoàn thành lượt khám.', 'error')
       return
     }
 
@@ -3555,16 +4204,16 @@ function DoctorDashboard({ user, onLogout }) {
       setVisitRecords((current) => [finalVisit, ...current])
     }
 
-    if (clinicalForm.LieuDung.trim()) {
+    if (currentPrescription.length > 0) {
       setPrescriptionDetails((current) => [
         ...current,
-        {
-          MaDonThuoc: `DT_DR_${String(current.length + 1).padStart(3, '0')}`,
+        ...currentPrescription.map((item, index) => ({
+          MaDonThuoc: `DT_DR_${String(current.length + index + 1).padStart(3, '0')}`,
           MaLuotKham: currentVisitId,
-          MaThuoc: clinicalForm.MaThuoc,
-          SoLuong: Number(clinicalForm.SoLuong) || 1,
-          LieuDung: clinicalForm.LieuDung.trim(),
-        },
+          MaThuoc: item.MaThuoc,
+          SoLuong: item.SoLuong,
+          LieuDung: item.LieuDung,
+        })),
       ])
     }
 
@@ -3584,14 +4233,17 @@ function DoctorDashboard({ user, onLogout }) {
       SoLuong: '10',
       TongSoBuoi: '3',
     }))
-    setFeedback(`Đã hoàn thành lượt khám ${currentVisitId} và lưu vào sổ khám bệnh.`)
+    setCurrentPrescription([])
+    setDiagnosisSearch('K29 - Viêm dạ dày và tá tràng')
+    setMedicineSearch('')
+    notify(`Đã hoàn thành lượt khám ${currentVisitId} và lưu vào sổ khám bệnh.`)
   }
 
   return (
     <main className="doctor-shell">
       <header className="doctor-topbar">
         <div>
-          <span className="doctor-kicker">Smart Clinic Doctor Workspace</span>
+          <span className="doctor-kicker">Medicare Doctor Workspace</span>
           <h1>Xin chào, Bác sĩ {doctorProfile.HoTen}</h1>
           <p>
             Chuyên khoa: <strong>{doctorProfile.ChuyenKhoa}</strong> · Chi nhánh:{' '}
@@ -3628,87 +4280,18 @@ function DoctorDashboard({ user, onLogout }) {
         >
           📚 Lịch sử đợt khám
         </button>
+        <button
+          type="button"
+          className={activeDoctorTab === 'account' ? 'active' : ''}
+          onClick={() => setActiveDoctorTab('account')}
+        >
+          ⚙️ Cài đặt tài khoản
+        </button>
       </nav>
 
       {activeDoctorTab === 'clinic' ? (
         <>
-          <section className="doctor-grid">
-        <article className="doctor-card">
-          <div className="doctor-section-header">
-            <div>
-              <h2>Cài đặt tài khoản</h2>
-              <p>Cập nhật thông tin liên hệ và bảo mật cá nhân.</p>
-            </div>
-          </div>
-          <form className="doctor-settings-form" onSubmit={handleUpdatePhone}>
-            <label>
-              Mã bác sĩ
-              <input value={doctorProfile.MaBacSi} disabled />
-            </label>
-            <label>
-              Chuyên khoa
-              <input value={doctorProfile.ChuyenKhoa} disabled />
-            </label>
-            <label>
-              Số điện thoại
-              <input
-                value={contactForm.SDT}
-                onChange={(event) => setContactForm({ SDT: event.target.value })}
-              />
-            </label>
-            <button type="submit" className="doctor-primary-button">
-              Lưu số điện thoại
-            </button>
-          </form>
-          <button
-            type="button"
-            className="doctor-secondary-button"
-            onClick={() => setShowPasswordForm((current) => !current)}
-          >
-            Đổi mật khẩu
-          </button>
-          {showPasswordForm && (
-            <form className="doctor-password-form" onSubmit={handleChangePassword}>
-              <label>
-                Mật khẩu cũ
-                <input
-                  type="password"
-                  value={passwordForm.oldPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({ ...current, oldPassword: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Mật khẩu mới
-                <input
-                  type="password"
-                  value={passwordForm.newPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Xác nhận mật khẩu mới
-                <input
-                  type="password"
-                  value={passwordForm.confirmPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({
-                      ...current,
-                      confirmPassword: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <button type="submit" className="doctor-primary-button">
-                Xác nhận đổi mật khẩu
-              </button>
-            </form>
-          )}
-        </article>
-
+          <section className="doctor-grid doctor-grid-single">
         <article className="doctor-card">
           <div className="doctor-section-header">
             <div>
@@ -3856,71 +4439,9 @@ function DoctorDashboard({ user, onLogout }) {
             <div className="doctor-record-main">
               <div className="doctor-command-panel">
                 <h3>Lệnh lâm sàng lượt khám hiện tại</h3>
-                <div className="doctor-command-grid">
-                  <label>
-                    Triệu chứng
-                    <textarea
-                      value={clinicalForm.TrieuChung}
-                      onChange={(event) => handleClinicalFormChange('TrieuChung', event.target.value)}
-                      placeholder="Nhập triệu chứng lâm sàng hiện tại..."
-                    />
-                  </label>
-                  <label>
-                    Mã bệnh ICD-10
-                    <select
-                      value={clinicalForm.MaBenh}
-                      onChange={(event) => handleClinicalFormChange('MaBenh', event.target.value)}
-                    >
-                      {diseases.map((disease) => (
-                        <option key={disease.MaBenh} value={disease.MaBenh}>
-                          {disease.MaBenh} - {disease.TenBenh}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Lời dặn
-                    <textarea
-                      value={clinicalForm.LoiDan}
-                      onChange={(event) => handleClinicalFormChange('LoiDan', event.target.value)}
-                      placeholder="Nhập lời dặn, hướng theo dõi hoặc lịch tái khám..."
-                    />
-                  </label>
-                  <label>
-                    Kê thuốc nhanh
-                    <select
-                      value={clinicalForm.MaThuoc}
-                      onChange={(event) => handleClinicalFormChange('MaThuoc', event.target.value)}
-                    >
-                      {medicines.map((medicine) => (
-                        <option key={medicine.MaThuoc} value={medicine.MaThuoc}>
-                          {medicine.TenThuoc}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Số lượng
-                    <input
-                      type="number"
-                      min="1"
-                      value={clinicalForm.SoLuong}
-                      onChange={(event) => handleClinicalFormChange('SoLuong', event.target.value)}
-                    />
-                  </label>
-                  <label className="doctor-command-wide">
-                    Liều dùng
-                    <input
-                      value={clinicalForm.LieuDung}
-                      onChange={(event) => handleClinicalFormChange('LieuDung', event.target.value)}
-                      placeholder="Ví dụ: Uống 1 viên sau ăn sáng trong 7 ngày"
-                    />
-                  </label>
-                </div>
-
-                <div className="doctor-order-grid">
-                  <section>
-                    <h3>Chỉ định xét nghiệm cận lâm sàng</h3>
+                <div className="doctor-workflow-stack">
+                  <section className="doctor-workflow-section">
+                    <h3>1. Chỉ định Xét nghiệm & Giám sát kết quả Realtime</h3>
                     <div className="doctor-inline-order">
                       <select
                         value={clinicalForm.MaXetNghiem}
@@ -3963,8 +4484,146 @@ function DoctorDashboard({ user, onLogout }) {
                     </div>
                   </section>
 
-                  <section>
-                    <h3>Chỉ định Liệu trình Điều trị Chuyên sâu</h3>
+                  <section className="doctor-workflow-section">
+                    <h3>2. Chẩn đoán & Kê đơn thuốc</h3>
+                    <div className="doctor-command-grid">
+                      <label>
+                        Triệu chứng
+                        <textarea
+                          value={clinicalForm.TrieuChung}
+                          onChange={(event) => handleClinicalFormChange('TrieuChung', event.target.value)}
+                          placeholder="Nhập triệu chứng lâm sàng hiện tại..."
+                        />
+                      </label>
+                      <label className="doctor-autocomplete-field">
+                        Chẩn đoán
+                        <input
+                          value={diagnosisSearch}
+                          onChange={(event) => setDiagnosisSearch(event.target.value)}
+                          placeholder="Gõ mã ICD-10 hoặc tên bệnh, ví dụ: K, Viêm, Tăng..."
+                        />
+                        <div className="doctor-suggestion-list">
+                          {filteredDiseaseSuggestions.map((disease) => (
+                            <button
+                              key={disease.MaBenh}
+                              type="button"
+                              className={clinicalForm.MaBenh === disease.MaBenh ? 'active' : ''}
+                              onClick={() => handleSelectDisease(disease)}
+                            >
+                              <strong>{disease.MaBenh}</strong>
+                              <span>{disease.TenBenh}</span>
+                            </button>
+                          ))}
+                          {filteredDiseaseSuggestions.length === 0 && (
+                            <p>Không tìm thấy mã bệnh phù hợp.</p>
+                          )}
+                        </div>
+                      </label>
+                      <label>
+                        Lời dặn
+                        <textarea
+                          value={clinicalForm.LoiDan}
+                          onChange={(event) => handleClinicalFormChange('LoiDan', event.target.value)}
+                          placeholder="Nhập lời dặn, hướng theo dõi hoặc lịch tái khám..."
+                        />
+                      </label>
+                      <label className="doctor-autocomplete-field">
+                        Kê đơn thuốc
+                        <input
+                          value={medicineSearch}
+                          onChange={(event) => setMedicineSearch(event.target.value)}
+                          placeholder="Gõ tên thuốc, ví dụ: Paracetamol, Amoxicillin..."
+                        />
+                        <div className="doctor-suggestion-list">
+                          {filteredMedicineSuggestions.map((medicine) => (
+                            <button
+                              key={medicine.MaThuoc}
+                              type="button"
+                              className={clinicalForm.MaThuoc === medicine.MaThuoc ? 'active' : ''}
+                              onClick={() => handleSelectMedicine(medicine)}
+                            >
+                              <strong>{medicine.TenThuoc}</strong>
+                              <span>
+                                {medicine.MaThuoc} · {medicine.DonViTinh}
+                              </span>
+                            </button>
+                          ))}
+                          {filteredMedicineSuggestions.length === 0 && (
+                            <p>Không tìm thấy thuốc phù hợp.</p>
+                          )}
+                        </div>
+                      </label>
+                      <label>
+                        Số lượng
+                        <input
+                          type="number"
+                          min="1"
+                          value={clinicalForm.SoLuong}
+                          onChange={(event) => handleClinicalFormChange('SoLuong', event.target.value)}
+                        />
+                      </label>
+                      <label className="doctor-command-wide">
+                        Liều dùng
+                        <input
+                          value={clinicalForm.LieuDung}
+                          onChange={(event) => handleClinicalFormChange('LieuDung', event.target.value)}
+                          placeholder="Ví dụ: Uống 1 viên sau ăn sáng trong 7 ngày"
+                        />
+                      </label>
+                      <div className="doctor-prescription-add">
+                        <button type="button" className="doctor-secondary-button" onClick={handleAddPrescriptionItem}>
+                          ➕ Thêm vào đơn
+                        </button>
+                      </div>
+                    </div>
+                    <div className="doctor-prescription-table-wrap">
+                      <table className="doctor-table compact doctor-prescription-table">
+                        <thead>
+                          <tr>
+                            <th>STT</th>
+                            <th>Tên thuốc</th>
+                            <th>Số lượng</th>
+                            <th>Đơn vị</th>
+                            <th>Liều dùng / Lời dặn thuốc</th>
+                            <th>Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {currentPrescription.map((item, index) => {
+                            const medicine = getMedicine(item.MaThuoc)
+                            return (
+                              <tr key={item.TempId}>
+                                <td>{index + 1}</td>
+                                <td>{medicine.TenThuoc}</td>
+                                <td>{item.SoLuong}</td>
+                                <td>{medicine.DonViTinh}</td>
+                                <td>{item.LieuDung}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="doctor-danger-button compact"
+                                    onClick={() => handleRemovePrescriptionItem(item.TempId)}
+                                  >
+                                    ❌ Xóa
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          {currentPrescription.length === 0 && (
+                            <tr>
+                              <td colSpan="6" className="doctor-empty-cell">
+                                Chưa có thuốc nào trong đơn tạm thời.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section className="doctor-workflow-section">
+                    <h3>3. Chỉ định Liệu trình Điều trị Chuyên sâu</h3>
                     <div className="doctor-inline-order">
                       <select
                         value={clinicalForm.MaDieuTri}
@@ -4193,7 +4852,7 @@ function DoctorDashboard({ user, onLogout }) {
             <div className="doctor-empty-state">Chưa có lịch trực tương lai nào được phân cho bác sĩ.</div>
           )}
         </section>
-      ) : (
+      ) : activeDoctorTab === 'history' ? (
         <section className="doctor-card">
           <div className="doctor-section-header">
             <div>
@@ -4243,6 +4902,99 @@ function DoctorDashboard({ user, onLogout }) {
                 )}
               </tbody>
             </table>
+          </div>
+        </section>
+      ) : (
+        <section className="doctor-card">
+          <div className="doctor-section-header">
+            <div>
+              <h2>Cài đặt tài khoản</h2>
+              <p>Cập nhật thông tin liên hệ và bảo mật cá nhân ngoài không gian khám bệnh.</p>
+            </div>
+          </div>
+          <div className="doctor-account-layout">
+            <section className="doctor-account-summary">
+              <div>
+                <span>Mã bác sĩ</span>
+                <strong>{doctorProfile.MaBacSi}</strong>
+              </div>
+              <div>
+                <span>Họ tên</span>
+                <strong>Bác sĩ {doctorProfile.HoTen}</strong>
+              </div>
+              <div>
+                <span>Chuyên khoa</span>
+                <strong>{doctorProfile.ChuyenKhoa}</strong>
+              </div>
+              <div>
+                <span>Chi nhánh mặc định</span>
+                <strong>{doctorProfile.TenChiNhanh}</strong>
+              </div>
+            </section>
+
+            <form className="doctor-settings-form" onSubmit={handleUpdatePhone}>
+              <label>
+                Số điện thoại liên hệ
+                <input
+                  value={contactForm.SDT}
+                  onChange={(event) => setContactForm({ SDT: event.target.value })}
+                  placeholder="Nhập số điện thoại mới"
+                />
+              </label>
+              <button type="submit" className="doctor-primary-button">
+                Lưu số điện thoại
+              </button>
+            </form>
+
+            <div className="doctor-security-block">
+              <button
+                type="button"
+                className="doctor-secondary-button"
+                onClick={() => setShowPasswordForm((current) => !current)}
+              >
+                🔑 Đổi mật khẩu
+              </button>
+              {showPasswordForm && (
+                <form className="doctor-password-form" onSubmit={handleChangePassword}>
+                  <label>
+                    Mật khẩu cũ
+                    <input
+                      type="password"
+                      value={passwordForm.oldPassword}
+                      onChange={(event) =>
+                        setPasswordForm((current) => ({ ...current, oldPassword: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Mật khẩu mới
+                    <input
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={(event) =>
+                        setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Xác nhận mật khẩu mới
+                    <input
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(event) =>
+                        setPasswordForm((current) => ({
+                          ...current,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <button type="submit" className="doctor-primary-button">
+                    Xác nhận đổi mật khẩu
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -4339,20 +5091,24 @@ function DoctorDashboard({ user, onLogout }) {
   )
 }
 
-function ReceptionistDashboard({ user, onLogout }) {
+function ReceptionistDashboard({ user, onLogout, showNotification }) {
   const TODAY = '2026-05-31'
   const [activeQueueTab, setActiveQueueTab] = useState('prebooked')
   const [searchTerm, setSearchTerm] = useState('')
   const [feedback, setFeedback] = useState('')
+  const notify = (message, type = 'success') => {
+    setFeedback(message)
+    showNotification?.(message, type)
+  }
   const [branches] = useState([
     {
       MaChiNhanh: 'CN_CG',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+      TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       DiaChi: 'Số 1 Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
     },
     {
       MaChiNhanh: 'CN_HBT',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+      TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       DiaChi: 'Số 99 Đại Cồ Việt, Hai Bà Trưng, Hà Nội',
     },
   ])
@@ -4896,7 +5652,7 @@ function ReceptionistDashboard({ user, onLogout }) {
           : booking,
       ),
     )
-    setFeedback(`Đã check-in lịch hẹn ${maLichHen}, cấp STT hàng đợi ${queueNumber}.`)
+    notify(`Đã check-in lịch hẹn ${maLichHen}, cấp STT hàng đợi ${queueNumber}.`)
     setActiveQueueTab('queue')
   }
 
@@ -4904,7 +5660,7 @@ function ReceptionistDashboard({ user, onLogout }) {
     <main className="reception-shell">
       <header className="reception-topbar">
         <div>
-          <span className="reception-kicker">Smart Clinic Reception</span>
+          <span className="reception-kicker">Medicare Reception</span>
           <h1>HỆ THỐNG TIẾP ĐÓN & ĐIỀU PHỐI HÀNG ĐỢI - {currentBranch.TenChiNhanh}</h1>
           <p>
             Lễ tân phụ trách: <strong>{user?.name || user?.id || 'Lễ tân'}</strong> · Ngày vận hành:{' '}
@@ -5117,21 +5873,31 @@ function ReceptionistDashboard({ user, onLogout }) {
   )
 }
 
-function TechnicianDashboard({ user, onLogout }) {
+function TechnicianDashboard({ user, onLogout, showNotification, onUpdateUser }) {
   const [activeTab, setActiveTab] = useState('pending')
   const [paymentModal, setPaymentModal] = useState(null)
   const [resultModal, setResultModal] = useState(null)
   const [resultText, setResultText] = useState('')
   const [feedback, setFeedback] = useState('')
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const notify = (message, type = 'success') => {
+    setFeedback(message)
+    showNotification?.(message, type)
+  }
   const [branches] = useState([
     {
       MaChiNhanh: 'CN_CG',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+      TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       DiaChi: 'Số 1 Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
     },
     {
       MaChiNhanh: 'CN_HBT',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+      TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       DiaChi: 'Số 99 Đại Cồ Việt, Hai Bà Trưng, Hà Nội',
     },
   ])
@@ -5338,8 +6104,14 @@ function TechnicianDashboard({ user, onLogout }) {
     { KyTuDauBHYT: 'HT', DoiTuongChinhSach: 'Cán bộ Hưu trí', TyLeHuong: 0.95 },
     { KyTuDauBHYT: 'DN', DoiTuongChinhSach: 'Người lao động doanh nghiệp', TyLeHuong: 0.8 },
   ]
+  const [technicianProfile, setTechnicianProfile] = useState({
+    MaXNV: user?.MaXNV || user?.id || 'XNV001',
+    HoTen: user?.HoTen || user?.name || user?.id || 'Xét nghiệm viên',
+    MaChiNhanh: user?.MaChiNhanh || 'CN_CG',
+    MatKhau: user?.MatKhau || '123456',
+  })
 
-  const maChiNhanh = user?.MaChiNhanh || 'CN_CG'
+  const maChiNhanh = technicianProfile.MaChiNhanh || 'CN_CG'
   const currentBranch = branches.find((branch) => branch.MaChiNhanh === maChiNhanh) || branches[0]
 
   const getPatient = (maBenhAn) =>
@@ -5391,7 +6163,7 @@ function TechnicianDashboard({ user, onLogout }) {
       .filter((row) => row.booking?.MaChiNhanh === maChiNhanh)
 
   const labRows = buildLabRows()
-  const currentTechnicianId = user?.id || 'XNV001'
+  const currentTechnicianId = technicianProfile.MaXNV || 'XNV001'
   const pendingRows = labRows.filter((row) => row.lab.TrangThaiXetNghiem === 'Chưa thực hiện')
   const completedRows = labRows.filter(
     (row) =>
@@ -5415,7 +6187,7 @@ function TechnicianDashboard({ user, onLogout }) {
           : lab,
       ),
     )
-    setFeedback(`Đã ghi nhận thanh toán ${paymentToken} cho ${paymentModal.service.TenDichVu}.`)
+    notify(`Đã ghi nhận thanh toán ${paymentToken} cho ${paymentModal.service.TenDichVu}.`)
     setPaymentModal(null)
   }
 
@@ -5434,7 +6206,7 @@ function TechnicianDashboard({ user, onLogout }) {
 
     const trimmedResult = resultText.trim()
     if (!trimmedResult) {
-      alert('Vui lòng nhập nội dung kết quả xét nghiệm.')
+      notify('Vui lòng nhập nội dung kết quả xét nghiệm.', 'error')
       return
     }
 
@@ -5450,20 +6222,65 @@ function TechnicianDashboard({ user, onLogout }) {
           : lab,
       ),
     )
-    alert('Đã trả kết quả xét nghiệm lên hệ thống thành công!')
-    setFeedback(`Đã trả kết quả xét nghiệm cho lượt khám ${resultModal.lab.MaLuotKham}.`)
+    notify(`Đã trả kết quả xét nghiệm cho lượt khám ${resultModal.lab.MaLuotKham}.`)
     setActiveTab('completed')
     handleCloseResultModal()
+  }
+
+  const handlePasswordFormChange = (field, value) => {
+    setPasswordForm((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleCancelPasswordChange = () => {
+    setPasswordForm({
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: '',
+    })
+    setShowPasswordForm(false)
+  }
+
+  const handleChangePassword = (event) => {
+    event.preventDefault()
+
+    if (passwordForm.currentPassword !== technicianProfile.MatKhau) {
+      notify('Mật khẩu hiện tại không chính xác.', 'error')
+      return
+    }
+
+    if (!passwordForm.newPassword.trim()) {
+      notify('Vui lòng nhập mật khẩu mới.', 'error')
+      return
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      notify('Mật khẩu mới và xác nhận mật khẩu không khớp.', 'error')
+      return
+    }
+
+    const nextProfile = {
+      ...technicianProfile,
+      MatKhau: passwordForm.newPassword,
+    }
+
+    setTechnicianProfile(nextProfile)
+    onUpdateUser?.({ MatKhau: passwordForm.newPassword })
+    handleCancelPasswordChange()
+    notify('Đổi mật khẩu thành công!')
   }
 
   return (
     <main className="technician-shell">
       <header className="technician-topbar">
         <div>
-          <span className="technician-kicker">Smart Clinic Laboratory</span>
-          <h1>TRUNG TÂM XÉT NGHIỆM & CHẨN ĐOÁN HÌNH ẢNH - Smart Clinic {currentBranch.TenChiNhanh}</h1>
+          <span className="technician-kicker">Medicare Laboratory</span>
+          <h1>TRUNG TÂM XÉT NGHIỆM & CHẨN ĐOÁN HÌNH ẢNH - Medicare {currentBranch.TenChiNhanh}</h1>
           <p>
-            Xét nghiệm viên: <strong>{user?.name || user?.id || 'Xét nghiệm viên'}</strong> · Chi nhánh:{' '}
+            Xét nghiệm viên: <strong>{technicianProfile.HoTen}</strong> · Mã tài khoản:{' '}
+            <strong>{technicianProfile.MaXNV}</strong> · Chi nhánh:{' '}
             <strong>{currentBranch.MaChiNhanh}</strong>
           </p>
         </div>
@@ -5495,6 +6312,13 @@ function TechnicianDashboard({ user, onLogout }) {
               onClick={() => setActiveTab('completed')}
             >
               Nhật ký đã trả kết quả ({completedRows.length})
+            </button>
+            <button
+              type="button"
+              className={activeTab === 'account' ? 'active' : ''}
+              onClick={() => setActiveTab('account')}
+            >
+              Cài đặt tài khoản
             </button>
           </div>
         </div>
@@ -5571,7 +6395,7 @@ function TechnicianDashboard({ user, onLogout }) {
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : activeTab === 'completed' ? (
           <div className="technician-table-wrap">
             <table className="technician-table technician-result-table">
               <thead>
@@ -5617,6 +6441,74 @@ function TechnicianDashboard({ user, onLogout }) {
               </tbody>
             </table>
           </div>
+        ) : (
+          <div className="technician-account-panel">
+            <section className="technician-profile-summary">
+              <div>
+                <span>Mã XNV</span>
+                <strong>{technicianProfile.MaXNV}</strong>
+              </div>
+              <div>
+                <span>Họ tên</span>
+                <strong>{technicianProfile.HoTen}</strong>
+              </div>
+              <div>
+                <span>Chi nhánh phụ trách</span>
+                <strong>
+                  {currentBranch.TenChiNhanh} ({currentBranch.MaChiNhanh})
+                </strong>
+              </div>
+            </section>
+
+            <div className="technician-account-actions">
+              <button
+                type="button"
+                className="technician-primary-button"
+                onClick={() => setShowPasswordForm((current) => !current)}
+              >
+                🔑 Đổi mật khẩu
+              </button>
+              {showPasswordForm && (
+                <form className="technician-password-form" onSubmit={handleChangePassword}>
+                  <label>
+                    Mật khẩu hiện tại
+                    <input
+                      type="password"
+                      value={passwordForm.currentPassword}
+                      onChange={(event) => handlePasswordFormChange('currentPassword', event.target.value)}
+                      placeholder="Nhập mật khẩu hiện tại"
+                    />
+                  </label>
+                  <label>
+                    Mật khẩu mới
+                    <input
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={(event) => handlePasswordFormChange('newPassword', event.target.value)}
+                      placeholder="Nhập mật khẩu mới"
+                    />
+                  </label>
+                  <label>
+                    Xác nhận mật khẩu mới
+                    <input
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(event) => handlePasswordFormChange('confirmPassword', event.target.value)}
+                      placeholder="Nhập lại mật khẩu mới"
+                    />
+                  </label>
+                  <div className="technician-password-actions">
+                    <button type="submit" className="technician-primary-button">
+                      Lưu mật khẩu mới
+                    </button>
+                    <button type="button" className="technician-secondary-button" onClick={handleCancelPasswordChange}>
+                      Hủy bỏ
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
         )}
       </section>
 
@@ -5647,7 +6539,7 @@ function TechnicianDashboard({ user, onLogout }) {
             </div>
             <div className="technician-qr-box">
               <div className="technician-qr-pattern" />
-              <span>QR Smart Clinic Lab</span>
+              <span>QR Medicare Lab</span>
             </div>
             <button type="button" className="technician-pay-button" onClick={handleConfirmPayment}>
               Xác nhận đã chuyển khoản
@@ -5694,18 +6586,26 @@ function TechnicianDashboard({ user, onLogout }) {
   )
 }
 
-function PatientDashboard({ user, onLogout, onUpdateUser }) {
+function PatientDashboard({
+  user,
+  onLogout,
+  onUpdateUser,
+  showNotification,
+  notifications = [],
+  onMarkNotificationsRead,
+}) {
   const [activeMenu, setActiveMenu] = useState('booking')
   const [serviceSearch, setServiceSearch] = useState('')
+  const [bookingMethod, setBookingMethod] = useState('time')
   const [branches] = useState([
     {
       MaChiNhanh: 'CN_CG',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Cầu Giấy',
+      TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
       DiaChi: 'Số 1 Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
     },
     {
       MaChiNhanh: 'CN_HBT',
-      TenChiNhanh: 'Smart Clinic - Cơ sở Hai Bà Trưng',
+      TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
       DiaChi: 'Số 99 Đại Cồ Việt, Hai Bà Trưng, Hà Nội',
     },
   ])
@@ -5829,6 +6729,11 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 	  }
 	  const [patient, setPatient] = useState(initialPatientProfile)
 	  const [, setPatientDirectory] = useState([initialPatientProfile])
+  const patientNotifications = notifications.filter(
+    (notification) =>
+      notification.MaBenhAn === patient.MaBenhAn ||
+      notification.MaBenhNhan === patient.MaBenhAn,
+  )
 	  const [bookings, setBookings] = useState([
     {
       MaLichHen: 'LH_001',
@@ -6090,7 +6995,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
   const [bookingForm, setBookingForm] = useState({
     MaChiNhanh: 'CN_CG',
     MaDichVu: 'DV_KHAM_NOI',
-    NgayKham: '2026-06-01',
+    NgayKham: '2026-06-03',
     CaKham: '1',
     MaBacSi: 'BS001',
   })
@@ -6115,6 +7020,18 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
     { KyTuDauBHYT: 'TE', DoiTuongChinhSach: 'Trẻ em dưới 6 tuổi', TyLeHuong: 1 },
     { KyTuDauBHYT: 'HT', DoiTuongChinhSach: 'Cán bộ Hưu trí', TyLeHuong: 0.95 },
     { KyTuDauBHYT: 'DN', DoiTuongChinhSach: 'Người lao động doanh nghiệp', TyLeHuong: 0.8 },
+  ]
+
+  const patientBookingStartDate = '2026-06-03'
+  const patientBookingEndDate = '2026-07-01'
+  const weekDayHeaders = [
+    { label: 'Thứ Hai', shortLabel: 'T2', dayIndex: 1 },
+    { label: 'Thứ Ba', shortLabel: 'T3', dayIndex: 2 },
+    { label: 'Thứ Tư', shortLabel: 'T4', dayIndex: 3 },
+    { label: 'Thứ Năm', shortLabel: 'T5', dayIndex: 4 },
+    { label: 'Thứ Sáu', shortLabel: 'T6', dayIndex: 5 },
+    { label: 'Thứ Bảy', shortLabel: 'T7', dayIndex: 6 },
+    { label: 'Chủ Nhật', shortLabel: 'CN', dayIndex: 0 },
   ]
 
   const clinicalServices = services.filter((service) => service.LoaiDichVu === 'Khám lâm sàng')
@@ -6159,9 +7076,6 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 	  const formatDoctorFullInfo = (doctor) =>
 	    `Bác sĩ ${doctor.HoTen} - Khoa: ${doctor.ChuyenKhoa || 'Chưa cập nhật'} (SĐT: ${doctor.SDT || 'Chưa cập nhật'})`
 
-	  const formatDoctorAssignedInfo = (doctor) =>
-	    `Bác sĩ phụ trách: Bác sĩ ${doctor.HoTen} | Chuyên khoa: ${doctor.ChuyenKhoa || 'Chưa cập nhật'} | SĐT: ${doctor.SDT || 'Chưa cập nhật'}`
-
 	  const getDiseaseInfo = (maBenh) =>
 	    diseases.find((disease) => disease.MaBenh === maBenh) || {
 	      MaBenh: maBenh,
@@ -6183,6 +7097,49 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 
   const formatMoney = (value) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
+
+  const toDateKey = (date) => date.toISOString().slice(0, 10)
+
+  const parseDateKey = (dateKey) => new Date(`${dateKey}T00:00:00`)
+
+  const addDays = (date, amount) => {
+    const nextDate = new Date(date)
+    nextDate.setDate(nextDate.getDate() + amount)
+    return nextDate
+  }
+
+  const getWeekdayLabel = (dateKey) => {
+    const day = parseDateKey(dateKey).getDay()
+    return weekDayHeaders.find((header) => header.dayIndex === day)?.label || dateKey
+  }
+
+  const buildBookingWeeks = () => {
+    const startDate = parseDateKey(patientBookingStartDate)
+    const endDate = parseDateKey(patientBookingEndDate)
+    const startWeekDay = startDate.getDay() || 7
+    let weekStart = addDays(startDate, -(startWeekDay - 1))
+    const weeks = []
+
+    while (weekStart <= endDate) {
+      const weekDates = weekDayHeaders.map((_, dayOffset) => {
+        const date = addDays(weekStart, dayOffset)
+        return {
+          dateKey: toDateKey(date),
+          isInBookingRange: date >= startDate && date <= endDate,
+        }
+      })
+
+      weeks.push({
+        label: `Tuần ${weeks.length + 1}`,
+        range: `${weekDates[0].dateKey} - ${weekDates[6].dateKey}`,
+        dates: weekDates,
+      })
+
+      weekStart = addDays(weekStart, 7)
+    }
+
+    return weeks
+  }
 
   const buildInvoice = ({ maDichVu, maChiNhanh, ngayKham, caKham }) => {
     const service = getService(maDichVu)
@@ -6217,7 +7174,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
         booking.MaChiNhanh === maChiNhanh &&
         booking.NgayKham === ngayKham &&
         Number(booking.CaKham) === Number(caKham) &&
-        booking.TrangThai !== 'Đã hủy',
+        !String(booking.TrangThai || '').includes('Đã hủy'),
     ).length
   }
 
@@ -6267,9 +7224,10 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
     return shiftTimes[Number(shift)] || `Ca ${shift}`
   }
 
-  const getAvailableDoctorsForShift = (params) => {
+  const getAvailableDoctorsForShift = (params, options = {}) => {
     const { maChiNhanh, maDichVu, ngayKham, caKham } = normalizeScheduleParams(params)
     const service = getService(maDichVu)
+    const shouldMatchSpecialty = options.matchSpecialty !== false
     const selectedDoctorIds = new Set()
 
     return doctorSchedules
@@ -6280,7 +7238,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
           schedule.NgayTruc === ngayKham &&
           Number(schedule.CaTruc) === Number(caKham) &&
           schedule.TrangThai === 'Đang hoạt động' &&
-          doctor.ChuyenKhoa === service.ChuyenKhoa &&
+          (!shouldMatchSpecialty || doctor.ChuyenKhoa === service.ChuyenKhoa) &&
           !selectedDoctorIds.has(schedule.MaBacSi)
 
         if (isMatched) selectedDoctorIds.add(schedule.MaBacSi)
@@ -6298,6 +7256,54 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
       .sort((first, second) => first.TenBacSi.localeCompare(second.TenBacSi, 'vi'))
   }
 
+  const getDoctorBookingOptions = (params) => {
+    const { maChiNhanh, maDichVu } = normalizeScheduleParams(params)
+    const service = getService(maDichVu)
+
+    return staffList
+      .filter((doctor) => {
+        if (doctor.ChuyenKhoa !== service.ChuyenKhoa) return false
+
+        return doctorSchedules.some(
+          (schedule) =>
+            schedule.MaBacSi === doctor.MaBacSi &&
+            schedule.MaChiNhanh === maChiNhanh &&
+            schedule.TrangThai === 'Đang hoạt động' &&
+            schedule.NgayTruc >= patientBookingStartDate &&
+            schedule.NgayTruc <= patientBookingEndDate &&
+            getRemainingSlots({
+              maChiNhanh,
+              maDichVu,
+              ngayKham: schedule.NgayTruc,
+              caKham: schedule.CaTruc,
+            }) > 0,
+        )
+      })
+      .sort((first, second) => first.HoTen.localeCompare(second.HoTen, 'vi'))
+      .map((doctor) => ({
+        MaBacSi: doctor.MaBacSi,
+        TenBacSi: doctor.HoTen,
+        ChuyenKhoa: doctor.ChuyenKhoa,
+        SDT: doctor.SDT,
+      }))
+  }
+
+  const getDoctorScheduleForGridCell = ({ dateKey, shift }) =>
+    doctorSchedules.find(
+      (schedule) =>
+        schedule.MaBacSi === bookingForm.MaBacSi &&
+        schedule.MaChiNhanh === bookingForm.MaChiNhanh &&
+        schedule.NgayTruc === dateKey &&
+        Number(schedule.CaTruc) === Number(shift) &&
+        schedule.TrangThai === 'Đang hoạt động' &&
+        getRemainingSlots({
+          maChiNhanh: bookingForm.MaChiNhanh,
+          maDichVu: bookingForm.MaDichVu,
+          ngayKham: dateKey,
+          caKham: shift,
+        }) > 0,
+    )
+
   const getDefaultSlotSelection = (params) => {
     const { maChiNhanh, maDichVu, ngayKham } = normalizeScheduleParams(params)
     const shifts = getAvailableShifts({ maChiNhanh, maDichVu, ngayKham })
@@ -6307,7 +7313,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
         maDichVu,
         ngayKham,
         caKham: shift,
-      }).length > 0,
+      }, { matchSpecialty: false }).length > 0,
     )
     const selectedShift = shiftWithDoctor || shifts[0]
     const doctorsForShift = selectedShift
@@ -6316,7 +7322,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
           maDichVu,
           ngayKham,
           caKham: selectedShift,
-        })
+        }, { matchSpecialty: false })
       : []
 
     return {
@@ -6331,7 +7337,9 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
     maDichVu: bookingForm.MaDichVu,
     ngayKham: bookingForm.NgayKham,
     caKham: bookingForm.CaKham,
-  })
+  }, { matchSpecialty: false })
+  const doctorBookingOptions = getDoctorBookingOptions(bookingForm)
+  const patientBookingWeeks = buildBookingWeeks()
   const filteredBookings = bookings.filter((booking) => {
     const keyword = appointmentSearch.trim().toLowerCase()
     if (!keyword) return true
@@ -6351,10 +7359,22 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
   const handleBookingFormChange = (field, value) => {
     setBookingForm((current) => {
       const next = { ...current, [field]: value }
-      if (field !== 'CaKham') {
+      if (bookingMethod === 'time' && field !== 'CaKham') {
         const nextSelection = getDefaultSlotSelection(next)
         next.CaKham = nextSelection.CaKham
         next.MaBacSi = nextSelection.MaBacSi
+      } else if (bookingMethod === 'doctor') {
+        const doctorOptions = getDoctorBookingOptions(next)
+        const shouldResetDoctor =
+          field === 'MaDichVu' ||
+          field === 'MaChiNhanh' ||
+          !doctorOptions.some((doctor) => doctor.MaBacSi === next.MaBacSi)
+
+        if (shouldResetDoctor) {
+          next.MaBacSi = doctorOptions[0]?.MaBacSi || ''
+          next.NgayKham = ''
+          next.CaKham = ''
+        }
       }
       return next
     })
@@ -6366,7 +7386,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
       maDichVu: bookingForm.MaDichVu,
       ngayKham: bookingForm.NgayKham,
       caKham: value,
-    })
+    }, { matchSpecialty: false })
     setBookingForm((current) => ({
       ...current,
       CaKham: value,
@@ -6378,8 +7398,54 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 	    setBookingForm((current) => ({
 	      ...current,
 	      MaBacSi: value,
+	      ...(bookingMethod === 'doctor' ? { NgayKham: '', CaKham: '' } : {}),
 	    }))
 	  }
+
+  const handleBookingMethodChange = (method) => {
+    setBookingMethod(method)
+    setBookingForm((current) => {
+      if (method === 'time') {
+        const next = {
+          ...current,
+          NgayKham: current.NgayKham || patientBookingStartDate,
+        }
+        const nextSelection = getDefaultSlotSelection(next)
+        return {
+          ...next,
+          CaKham: nextSelection.CaKham,
+          MaBacSi: nextSelection.MaBacSi,
+        }
+      }
+
+      const next = {
+        ...current,
+        NgayKham: '',
+        CaKham: '',
+      }
+      const doctorOptions = getDoctorBookingOptions(next)
+      return {
+        ...next,
+        MaBacSi: doctorOptions[0]?.MaBacSi || '',
+      }
+    })
+  }
+
+  const handleDoctorScheduleCellClick = (schedule) => {
+    setBookingForm((current) => ({
+      ...current,
+      NgayKham: schedule.NgayTruc,
+      CaKham: String(schedule.CaTruc),
+      MaBacSi: schedule.MaBacSi,
+    }))
+
+    window.requestAnimationFrame(() => {
+      document.getElementById('patient-booking-invoice')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+  }
 
 	  const handleStartEditContact = () => {
 	    setContactForm({
@@ -6414,7 +7480,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 	      id: nextPatient.SDT,
 	    })
 	    setIsEditingContact(false)
-	    alert('Cập nhật thông tin liên hệ thành công!')
+	    showNotification?.('Cập nhật thông tin liên hệ thành công!')
 	  }
 
 	  const handlePasswordFormChange = (field, value) => {
@@ -6435,12 +7501,12 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 
 	  const handleConfirmPasswordChange = () => {
 	    if (passwordForm.currentPassword !== patient.MatKhau) {
-	      alert('Mật khẩu hiện tại không chính xác.')
+	      showNotification?.('Mật khẩu hiện tại không chính xác.', 'error')
 	      return
 	    }
 
 	    if (!passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword) {
-	      alert('Mật khẩu mới và xác nhận mật khẩu không khớp.')
+	      showNotification?.('Mật khẩu mới và xác nhận mật khẩu không khớp.', 'error')
 	      return
 	    }
 
@@ -6455,7 +7521,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 	    )
 	    onUpdateUser?.({ MatKhau: passwordForm.newPassword })
 	    handleCancelPasswordChange()
-	    alert('Đổi mật khẩu thành công!')
+	    showNotification?.('Đổi mật khẩu thành công!')
 	  }
 
 	  const handleTreatmentDraftChange = (maLichTrinh, field, value) => {
@@ -6540,13 +7606,13 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
 
   const openBookingPayment = () => {
     if (!bookingForm.CaKham || !bookingForm.MaBacSi) {
-      alert('Hiện chưa có ca trống phù hợp. Vui lòng chọn ngày hoặc chi nhánh khác.')
+      showNotification?.('Hiện chưa có ca trống phù hợp. Vui lòng chọn ngày hoặc chi nhánh khác.', 'error')
       return
     }
 
     const config = getBranchConfig(bookingForm.MaChiNhanh, bookingForm.MaDichVu)
     if (!config) {
-      alert('Dịch vụ này chưa được phân phối tại chi nhánh đã chọn.')
+      showNotification?.('Dịch vụ này chưa được phân phối tại chi nhánh đã chọn.', 'error')
       return
     }
 
@@ -6570,13 +7636,13 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
   const openTreatmentPayment = (treatment) => {
     const draft = treatmentDrafts[treatment.MaLichTrinh]
     if (!draft?.CaKham || !draft?.MaBacSi) {
-      alert('Hiện chưa có ca điều trị trống phù hợp. Vui lòng chọn ngày hoặc chi nhánh khác.')
+      showNotification?.('Hiện chưa có ca điều trị trống phù hợp. Vui lòng chọn ngày hoặc chi nhánh khác.', 'error')
       return
     }
 
     const config = getBranchConfig(draft.MaChiNhanh, treatment.MaDichVu)
     if (!config) {
-      alert('Dịch vụ điều trị này chưa được phân phối tại chi nhánh đã chọn.')
+      showNotification?.('Dịch vụ điều trị này chưa được phân phối tại chi nhánh đã chọn.', 'error')
       return
     }
 
@@ -6614,7 +7680,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
       CaKham: paymentModal.invoice.caKham,
       MaBacSi: paymentModal.payload.MaBacSi,
       PaymentToken: paymentToken,
-      TrangThai: 'Đã xác nhận',
+      TrangThai: paymentModal.type === 'new-booking' ? 'Chờ khám' : 'Đã xác nhận',
     }
 
     setBookings((current) => [...current, newBooking])
@@ -6637,7 +7703,7 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
     }
 
     setPaymentModal(null)
-    alert('Thanh toán thành công! Lịch hẹn của bạn đã được hệ thống xác nhận.')
+    showNotification?.('Thanh toán thành công! Lịch hẹn của bạn đã được hệ thống xác nhận.')
   }
 
   const renderPaymentModal = () => {
@@ -6705,11 +7771,116 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
       ngayKham: bookingForm.NgayKham,
       caKham: Number(bookingForm.CaKham || 0),
     })
+    const selectedDoctor = bookingForm.MaBacSi ? getDoctorInfo(bookingForm.MaBacSi) : null
+    const canStartPayment = Boolean(
+      bookingForm.MaDichVu &&
+        bookingForm.MaChiNhanh &&
+        bookingForm.NgayKham &&
+        bookingForm.CaKham &&
+        bookingForm.MaBacSi,
+    )
+
+    const renderDoctorBookingGrid = () => {
+      if (!bookingForm.MaBacSi) {
+        return (
+          <div className="patient-doctor-note">
+            Chọn bác sĩ phù hợp để xem lưới lịch trực từ {patientBookingStartDate} đến {patientBookingEndDate}.
+          </div>
+        )
+      }
+
+      return (
+        <div className="patient-doctor-week-stack">
+          {patientBookingWeeks.map((week) => (
+            <section key={week.range} className="patient-doctor-week-card">
+              <header>
+                <div>
+                  <h3>{week.label}</h3>
+                  <span>{week.range}</span>
+                </div>
+                <strong>{formatDoctorFullInfo(selectedDoctor)}</strong>
+              </header>
+
+              <div className="patient-booking-week-grid">
+                <div className="patient-booking-week-cell header">Ca trực</div>
+                {week.dates.map((date) => (
+                  <div key={date.dateKey} className="patient-booking-week-cell header">
+                    <strong>{getWeekdayLabel(date.dateKey)}</strong>
+                    <span>{date.dateKey}</span>
+                  </div>
+                ))}
+
+                {[1, 2, 3, 4].map((shift) => (
+                  <Fragment key={`${week.range}-${shift}`}>
+                    <div className="patient-booking-week-cell shift-label">{getShiftTimeLabel(shift)}</div>
+                    {week.dates.map((date) => {
+                      const schedule = date.isInBookingRange
+                        ? getDoctorScheduleForGridCell({ dateKey: date.dateKey, shift })
+                        : null
+                      const remainingSlots = schedule
+                        ? getRemainingSlots({
+                            maChiNhanh: bookingForm.MaChiNhanh,
+                            maDichVu: bookingForm.MaDichVu,
+                            ngayKham: date.dateKey,
+                            caKham: shift,
+                          })
+                        : 0
+                      const isSelected =
+                        bookingForm.NgayKham === date.dateKey &&
+                        Number(bookingForm.CaKham) === Number(shift)
+
+                      return (
+                        <div key={`${date.dateKey}-${shift}`} className="patient-booking-week-cell">
+                          {schedule ? (
+                            <button
+                              type="button"
+                              className={`patient-booking-slot-button ${isSelected ? 'active' : ''}`}
+                              onClick={() => handleDoctorScheduleCellClick(schedule)}
+                            >
+                              <strong>Ca {shift}</strong>
+                              <span>{getWeekdayLabel(date.dateKey)}</span>
+                              <em>Còn {remainingSlots} slot</em>
+                            </button>
+                          ) : (
+                            <span className="patient-booking-slot-empty">-</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )
+    }
 
     return (
       <div className="patient-card">
         <h2>Đặt lịch khám mới</h2>
-        <p>Chọn dịch vụ khám lâm sàng, chi nhánh, ngày và ca trống phù hợp với lịch trực bác sĩ.</p>
+        <p>Chọn dịch vụ khám lâm sàng rồi đặt theo khung giờ mong muốn hoặc chọn thẳng bác sĩ yêu thích.</p>
+
+        <div className="booking-method-tabs">
+          <button
+            type="button"
+            className={`booking-method-tab ${bookingMethod === 'time' ? 'active' : ''}`}
+            onClick={() => handleBookingMethodChange('time')}
+          >
+            <span>📅</span>
+            <strong>Đặt lịch theo thời gian</strong>
+            <em>Chọn ngày, ca khám rồi chọn bác sĩ đang trực</em>
+          </button>
+          <button
+            type="button"
+            className={`booking-method-tab ${bookingMethod === 'doctor' ? 'active' : ''}`}
+            onClick={() => handleBookingMethodChange('doctor')}
+          >
+            <span>👨‍⚕️</span>
+            <strong>Đặt lịch theo bác sĩ</strong>
+            <em>Xem lưới lịch trực tương lai của bác sĩ</em>
+          </button>
+        </div>
 
         <div className="patient-service-picker">
           <div className="patient-service-picker-head">
@@ -6748,82 +7919,143 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
           </div>
         </div>
 
-        <div className="patient-form-grid">
-          <label>
-            Chi nhánh
-            <select
-              value={bookingForm.MaChiNhanh}
-              onChange={(event) => handleBookingFormChange('MaChiNhanh', event.target.value)}
-            >
-              {branches.map((branch) => (
-                <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
-                  {branch.TenChiNhanh}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Ngày khám
-            <input
-              type="date"
-              value={bookingForm.NgayKham}
-              onChange={(event) => handleBookingFormChange('NgayKham', event.target.value)}
-            />
-          </label>
-          <label>
-            Ca khám
-            <select value={bookingForm.CaKham} onChange={(event) => handleBookingShiftChange(event.target.value)}>
-	              {bookingAvailableShifts.length === 0 && <option value="">Không có ca trống</option>}
-	              {bookingAvailableShifts.map((shift) => (
-	                <option key={shift} value={shift}>
-	                  {getShiftTimeLabel(shift)} - còn{' '}
-	                  {getRemainingSlots({
-	                    maChiNhanh: bookingForm.MaChiNhanh,
-	                    maDichVu: bookingForm.MaDichVu,
-	                    ngayKham: bookingForm.NgayKham,
-	                    caKham: shift,
-	                  })}{' '}
-	                  slot
-	                </option>
-	              ))}
-            </select>
-          </label>
-          <label>
-            Bác sĩ phụ trách
-            {bookingAvailableDoctors.length > 1 ? (
-	              <select value={bookingForm.MaBacSi} onChange={(event) => handleBookingDoctorChange(event.target.value)}>
-	                {bookingAvailableDoctors.map((doctor) => (
-	                  <option key={doctor.MaBacSi} value={doctor.MaBacSi}>
-	                    {formatDoctorFullInfo({
-	                      HoTen: doctor.TenBacSi,
-	                      ChuyenKhoa: doctor.ChuyenKhoa,
-	                      SDT: doctor.SDT,
-	                    })}
-	                  </option>
-	                ))}
-	              </select>
-            ) : (
-	              <div className="patient-doctor-note">
-	                {bookingAvailableDoctors[0]
-	                  ? formatDoctorAssignedInfo({
-	                      HoTen: bookingAvailableDoctors[0].TenBacSi,
-	                      ChuyenKhoa: bookingAvailableDoctors[0].ChuyenKhoa,
-	                      SDT: bookingAvailableDoctors[0].SDT,
-	                    })
-	                  : 'Ca này không có bác sĩ chuyên khoa phù hợp, vui lòng chọn ca khác'}
-	              </div>
-            )}
-          </label>
-        </div>
+        {bookingMethod === 'time' ? (
+          <div className="patient-form-grid">
+            <label>
+              Chi nhánh
+              <select
+                value={bookingForm.MaChiNhanh}
+                onChange={(event) => handleBookingFormChange('MaChiNhanh', event.target.value)}
+              >
+                {branches.map((branch) => (
+                  <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
+                    {branch.TenChiNhanh}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ngày khám
+              <input
+                type="date"
+                value={bookingForm.NgayKham}
+                onChange={(event) => handleBookingFormChange('NgayKham', event.target.value)}
+              />
+            </label>
+            <label>
+              Ca khám
+              <select value={bookingForm.CaKham} onChange={(event) => handleBookingShiftChange(event.target.value)}>
+                {bookingAvailableShifts.length === 0 && <option value="">Không có ca trống</option>}
+                {bookingAvailableShifts.map((shift) => (
+                  <option key={shift} value={shift}>
+                    {getShiftTimeLabel(shift)} - còn{' '}
+                    {getRemainingSlots({
+                      maChiNhanh: bookingForm.MaChiNhanh,
+                      maDichVu: bookingForm.MaDichVu,
+                      ngayKham: bookingForm.NgayKham,
+                      caKham: shift,
+                    })}{' '}
+                    slot
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Chọn Bác sĩ phụ trách
+              <select
+                value={bookingForm.MaBacSi}
+                onChange={(event) => handleBookingDoctorChange(event.target.value)}
+                disabled={bookingAvailableDoctors.length === 0}
+              >
+                {bookingAvailableDoctors.length === 0 && <option value="">Không có bác sĩ đang trực ca này</option>}
+                {bookingAvailableDoctors.map((doctor) => (
+                  <option key={doctor.MaBacSi} value={doctor.MaBacSi}>
+                    {formatDoctorFullInfo({
+                      HoTen: doctor.TenBacSi,
+                      ChuyenKhoa: doctor.ChuyenKhoa,
+                      SDT: doctor.SDT,
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : (
+          <>
+            <div className="patient-form-grid doctor-first-form">
+              <label>
+                Chi nhánh
+                <select
+                  value={bookingForm.MaChiNhanh}
+                  onChange={(event) => handleBookingFormChange('MaChiNhanh', event.target.value)}
+                >
+                  {branches.map((branch) => (
+                    <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
+                      {branch.TenChiNhanh}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="doctor-first-select">
+                Chọn Bác sĩ
+                <select
+                  value={bookingForm.MaBacSi}
+                  onChange={(event) => handleBookingDoctorChange(event.target.value)}
+                  disabled={doctorBookingOptions.length === 0}
+                >
+                  {doctorBookingOptions.length === 0 && <option value="">Chưa có bác sĩ phù hợp</option>}
+                  {doctorBookingOptions.map((doctor) => (
+                    <option key={doctor.MaBacSi} value={doctor.MaBacSi}>
+                      {formatDoctorFullInfo({
+                        HoTen: doctor.TenBacSi,
+                        ChuyenKhoa: doctor.ChuyenKhoa,
+                        SDT: doctor.SDT,
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
-        <div className="patient-invoice-preview">
+            <div className="doctor-first-grid-panel">
+              <div className="doctor-first-grid-head">
+                <div>
+                  <span>Lưới lịch trực tương lai</span>
+                  <strong>
+                    {selectedDoctor
+                      ? `${selectedDoctor.HoTen} - ${selectedDoctor.ChuyenKhoa}`
+                      : 'Chưa chọn bác sĩ'}
+                  </strong>
+                </div>
+                <p>
+                  Nhấn vào ô còn slot để chọn ngày và ca khám. Hệ thống hiển thị từ {patientBookingStartDate} đến{' '}
+                  {patientBookingEndDate}.
+                </p>
+              </div>
+              {renderDoctorBookingGrid()}
+            </div>
+          </>
+        )}
+
+        <div id="patient-booking-invoice" className="patient-invoice-preview">
           <strong>Xem trước hóa đơn</strong>
+          {canStartPayment && selectedDoctor && (
+            <span>
+              Lịch chọn: {bookingForm.NgayKham} - {getShiftTimeLabel(bookingForm.CaKham)} - Bác sĩ{' '}
+              {selectedDoctor.HoTen}
+            </span>
+          )}
           <span>Giá gốc: {formatMoney(invoice.giaGoc)}</span>
           <span>BHYT giảm: {formatMoney(invoice.bhytAmount)}</span>
           <span>Giá cuối: {formatMoney(invoice.finalAmount)}</span>
         </div>
 
-        <button type="button" className="patient-primary-button" onClick={openBookingPayment}>
+        <button
+          type="button"
+          className="patient-primary-button"
+          onClick={openBookingPayment}
+          disabled={!canStartPayment}
+        >
           Tiến hành thanh toán
         </button>
       </div>
@@ -7369,7 +8601,13 @@ function PatientDashboard({ user, onLogout, onUpdateUser }) {
             <span>Xin chào</span>
             <h1>{patient.HoTen}</h1>
           </div>
-          <p>BHYT: {patient.MaSoBHYT || 'Không sử dụng'} - Mức hưởng {Math.round(getBhytRate() * 100)}%</p>
+          <div className="patient-topbar-actions">
+            <p>BHYT: {patient.MaSoBHYT || 'Không sử dụng'} - Mức hưởng {Math.round(getBhytRate() * 100)}%</p>
+            <NotificationBell
+              notifications={patientNotifications}
+              onMarkAllRead={() => onMarkNotificationsRead?.(patient.MaBenhAn)}
+            />
+          </div>
         </header>
         {renderContent()}
       </section>

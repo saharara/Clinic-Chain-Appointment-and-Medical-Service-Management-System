@@ -1,3 +1,189 @@
+.global-toast {
+  position: fixed;
+  top: 30px;
+  left: 50%;
+  z-index: 9999;
+  min-width: min(420px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  min-height: 58px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 18px;
+  color: #ffffff;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+  transform: translateX(-50%);
+  animation: globalToastIn 180ms ease-out both;
+  backdrop-filter: blur(16px);
+}
+
+.global-toast.success {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  box-shadow: 0 22px 60px rgba(22, 163, 74, 0.36);
+}
+
+.global-toast.error {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 22px 60px rgba(220, 38, 38, 0.36);
+}
+
+.global-toast-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 1.2rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+.notification-bell-wrap {
+  position: relative;
+}
+
+.notification-bell-button {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+}
+
+.notification-bell-button:hover {
+  border-color: #60a5fa;
+  transform: translateY(-1px);
+}
+
+.notification-bell-icon {
+  font-size: 1.25rem;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.notification-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 80;
+  width: min(380px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+}
+
+.notification-panel-head {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.notification-panel-head strong {
+  color: #0f172a;
+}
+
+.notification-panel-head button {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.notification-list {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.notification-item {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.notification-item.unread {
+  background: #eff6ff;
+}
+
+.notification-item.read {
+  background: #ffffff;
+  opacity: 0.72;
+}
+
+.notification-item p {
+  margin: 0 0 8px;
+  color: #0f172a;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.notification-item span,
+.notification-empty {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.notification-empty {
+  margin: 0;
+  padding: 18px 16px;
+}
+
+.patient-topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.patient-topbar-actions p {
+  margin: 0;
+}
+
+@keyframes globalToastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .page-shell {
   min-height: 100vh;
   padding: 32px;
@@ -776,6 +962,39 @@
   gap: 14px;
 }
 
+.monthly-report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.monthly-report-header h2 {
+  margin: 4px 0 8px;
+}
+
+.monthly-report-header p {
+  margin: 0;
+  color: #475569;
+  font-weight: 700;
+}
+
+.admin-section-kicker {
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.month-picker-field {
+  min-width: 230px;
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-weight: 800;
+}
+
 .finance-kpi-card {
   min-height: 160px;
   padding: 18px;
@@ -831,6 +1050,94 @@
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #f8fafc;
+}
+
+.ranking-panel.wide {
+  grid-column: 1 / -1;
+}
+
+.monthly-service-grid {
+  grid-template-columns: 1fr;
+}
+
+.admin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.admin-transfer-modal {
+  position: relative;
+  width: min(620px, 100%);
+  padding: 24px;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.28);
+}
+
+.admin-transfer-modal h2 {
+  margin: 6px 0 18px;
+  color: #0f172a;
+}
+
+.admin-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 1.35rem;
+  cursor: pointer;
+}
+
+.transfer-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.transfer-summary-grid div {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.transfer-summary-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.transfer-summary-grid strong {
+  color: #0f172a;
+}
+
+.transfer-select-field {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.transfer-modal-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .ranking-panel h3 {
@@ -960,7 +1267,8 @@
 }
 
 .doctor-primary-button.compact,
-.doctor-secondary-button.compact {
+.doctor-secondary-button.compact,
+.doctor-danger-button.compact {
   min-height: 34px;
   padding: 0 12px;
   font-size: 0.84rem;
@@ -986,6 +1294,11 @@
 .doctor-warning-button {
   background: #fef3c7;
   color: #92400e;
+}
+
+.doctor-danger-button {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .doctor-finish-button {
@@ -1034,6 +1347,10 @@
   grid-template-columns: minmax(300px, 0.85fr) minmax(520px, 1.5fr);
   gap: 18px;
   margin-bottom: 18px;
+}
+
+.doctor-grid-single {
+  grid-template-columns: 1fr;
 }
 
 .doctor-card {
@@ -1111,6 +1428,39 @@
   outline: 0;
   border-color: #1d4ed8;
   box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+}
+
+.doctor-account-layout,
+.doctor-security-block {
+  display: grid;
+  gap: 16px;
+}
+
+.doctor-account-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.doctor-account-summary div {
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.doctor-account-summary span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.doctor-account-summary strong {
+  color: #0f172a;
+  line-height: 1.35;
 }
 
 .doctor-table-wrap {
@@ -1241,6 +1591,27 @@
   color: #0f172a;
 }
 
+.doctor-workflow-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.doctor-workflow-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.doctor-workflow-section > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1d4ed8;
+}
+
 .doctor-command-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(160px, 1fr));
@@ -1284,6 +1655,67 @@
 
 .doctor-command-wide {
   grid-column: span 2;
+}
+
+.doctor-prescription-add {
+  display: flex;
+  align-items: end;
+}
+
+.doctor-prescription-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.doctor-prescription-table {
+  min-width: 820px;
+}
+
+.doctor-autocomplete-field {
+  position: relative;
+}
+
+.doctor-suggestion-list {
+  max-height: 190px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(219, 234, 254, 0.35);
+}
+
+.doctor-suggestion-list button {
+  display: grid;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: #ffffff;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doctor-suggestion-list button:hover,
+.doctor-suggestion-list button.active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.doctor-suggestion-list button strong {
+  color: #1d4ed8;
+  font-size: 0.9rem;
+}
+
+.doctor-suggestion-list button span,
+.doctor-suggestion-list p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .doctor-order-grid {
@@ -2178,6 +2610,86 @@
   color: #ffffff;
 }
 
+.technician-account-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.technician-profile-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.technician-profile-summary div {
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.technician-profile-summary span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.technician-profile-summary strong {
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.technician-account-actions {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+
+.technician-password-form {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #bae6fd;
+  border-radius: 14px;
+  background: #f0f9ff;
+}
+
+.technician-password-form label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.technician-password-form input {
+  width: 100%;
+  height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.technician-password-form input:focus {
+  border-color: #075985;
+  outline: 3px solid rgba(7, 89, 133, 0.14);
+}
+
+.technician-password-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .technician-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -2543,6 +3055,68 @@
   color: #64748b;
 }
 
+.booking-method-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.booking-method-tab {
+  min-height: 96px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  border: 1px solid #dbe7ef;
+  border-radius: 14px;
+  padding: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.booking-method-tab:hover,
+.booking-method-tab.active {
+  border-color: #0f766e;
+  background: #ecfeff;
+  box-shadow: 0 14px 32px rgba(15, 118, 110, 0.14);
+  transform: translateY(-1px);
+}
+
+.booking-method-tab span {
+  grid-row: span 2;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #ccfbf1;
+  color: #115e59;
+  font-size: 1.25rem;
+}
+
+.booking-method-tab strong {
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.booking-method-tab em {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .patient-service-picker {
   margin-bottom: 18px;
   padding: 14px;
@@ -2773,6 +3347,185 @@
   background: #ffffff;
   color: #0f172a;
   font: inherit;
+}
+
+.patient-form-grid select:disabled,
+.patient-primary-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.doctor-first-form {
+  grid-template-columns: minmax(220px, 0.8fr) minmax(280px, 1.2fr);
+}
+
+.doctor-first-select {
+  grid-column: span 2;
+}
+
+.doctor-first-grid-panel {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.doctor-first-grid-head {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 0.9fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.doctor-first-grid-head span {
+  display: block;
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.doctor-first-grid-head strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+}
+
+.doctor-first-grid-head p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.patient-doctor-week-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.patient-doctor-week-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.patient-doctor-week-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.patient-doctor-week-card h3 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.patient-doctor-week-card header span {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.patient-doctor-week-card header > strong {
+  max-width: 420px;
+  color: #0f766e;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.patient-booking-week-grid {
+  display: grid;
+  grid-template-columns: 132px repeat(7, minmax(128px, 1fr));
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  overflow-x: auto;
+  background: #ffffff;
+}
+
+.patient-booking-week-cell {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+  text-align: center;
+}
+
+.patient-booking-week-cell.header {
+  min-height: 58px;
+  display: grid;
+  gap: 4px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.patient-booking-week-cell.header span {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.patient-booking-week-cell.shift-label {
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.patient-booking-slot-button {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  gap: 3px;
+  place-items: center;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  padding: 8px;
+  background: #f0fdfa;
+  color: #115e59;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.patient-booking-slot-button:hover,
+.patient-booking-slot-button.active {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.16);
+  transform: translateY(-1px);
+}
+
+.patient-booking-slot-button strong {
+  font-size: 0.88rem;
+}
+
+.patient-booking-slot-button span,
+.patient-booking-slot-button em {
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.patient-booking-slot-empty {
+  color: #cbd5e1;
+  font-weight: 900;
 }
 
 .patient-doctor-note {
@@ -3361,11 +4114,23 @@
   .admin-stat-grid,
   .finance-kpi-grid,
   .ranking-grid,
+  .doctor-grid,
+  .doctor-record-layout,
+  .doctor-history-grid,
+  .doctor-command-grid,
+  .doctor-account-summary,
+  .doctor-settings-form,
+  .doctor-password-form,
 	  .patient-form-grid,
 	  .patient-profile-grid,
 	  .patient-profile-form-grid,
 	  .patient-password-panel,
 	  .patient-service-picker-head,
+	  .booking-method-tabs,
+	  .doctor-first-form,
+	  .doctor-first-grid-head,
+	  .technician-profile-summary,
+	  .technician-password-form,
 	  .patient-appointment-toolbar,
 	  .health-record-layout,
 	  .clinical-grid,
@@ -3409,16 +4174,36 @@
     display: grid;
   }
 
+  .monthly-report-header {
+    display: grid;
+  }
+
+  .month-picker-field {
+    min-width: 0;
+  }
+
   .admin-form-grid,
   .admin-form-grid-wide,
   .admin-stat-grid,
   .finance-kpi-grid,
   .ranking-grid,
+  .doctor-grid,
+  .doctor-record-layout,
+  .doctor-history-grid,
+  .doctor-command-grid,
+  .doctor-account-summary,
+  .doctor-settings-form,
+  .doctor-password-form,
 	  .patient-form-grid,
 	  .patient-profile-grid,
 	  .patient-profile-form-grid,
 	  .patient-password-panel,
 	  .patient-service-picker-head,
+	  .booking-method-tabs,
+	  .doctor-first-form,
+	  .doctor-first-grid-head,
+	  .technician-profile-summary,
+	  .technician-password-form,
 	  .patient-appointment-toolbar,
 	  .health-record-layout,
 	  .clinical-grid,
@@ -3430,6 +4215,14 @@
 
 	  .patient-topbar {
 	    display: grid;
+	  }
+
+	  .doctor-first-select {
+	    grid-column: auto;
+	  }
+
+	  .doctor-command-wide {
+	    grid-column: auto;
 	  }
 
 	  .patient-profile-header {

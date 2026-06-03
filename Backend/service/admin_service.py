@@ -28,7 +28,7 @@ async def create_branch(
                 DiaChi,
                 SDT
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
         """, (
             ma_chi_nhanh,
             ten_chi_nhanh,
@@ -73,7 +73,7 @@ async def create_service(
             "data": None
         }
 
-    VALID_SERVICE_TYPES = ["KhamLamSang", "XetNghiem", "DieuTri"]
+    VALID_SERVICE_TYPES = ["Khám lâm sàng", "Xét nghiệm", "Điều trị"]
 
     if loai_dich_vu not in VALID_SERVICE_TYPES:
         return {
@@ -103,7 +103,7 @@ async def create_service(
                 LoaiDichVu,
                 GiaGoc
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             ma_dich_vu,
             ten_dich_vu,
@@ -151,7 +151,7 @@ async def create_doctor_schedule(
         cursor = await conn.execute("""
             SELECT MaBacSi
             FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (ma_bac_si,))
 
         bac_si = await cursor.fetchone()
@@ -165,11 +165,11 @@ async def create_doctor_schedule(
 
         # check duplicate schedule
         cursor = await conn.execute("""
-            SELECT MaLichTruc
+            SELECT id, MaLichTruc
             FROM LICH_TRUC
-            WHERE MaBacSi = ?
-              AND NgayTruc = ?
-              AND CaTruc = ?
+            WHERE MaBacSi = %s
+              AND NgayTruc = %s
+              AND CaTruc = %s
         """, (ma_bac_si, ngay_truc, ca_truc))
 
         existed = await cursor.fetchone()
@@ -183,7 +183,7 @@ async def create_doctor_schedule(
 
         ma_lich_truc = "LT_" + uuid.uuid4().hex[:6].upper()
 
-        await conn.execute("""
+        insert_cursor = await conn.execute("""
             INSERT INTO LICH_TRUC (
                 MaLichTruc,
                 MaBacSi,
@@ -191,7 +191,7 @@ async def create_doctor_schedule(
                 NgayTruc,
                 CaTruc
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             ma_lich_truc,
             ma_bac_si,
@@ -206,6 +206,7 @@ async def create_doctor_schedule(
             "success": True,
             "message": "Tạo lịch trực thành công.",
             "data": {
+                "id": insert_cursor.lastrowid,
                 "MaLichTruc": ma_lich_truc
             }
         }
@@ -237,7 +238,7 @@ async def get_report(
         cursor = await conn.execute("""
             SELECT COUNT(*) as total
             FROM LICH_HEN
-            WHERE NgayKham BETWEEN ? AND ?
+            WHERE NgayKham BETWEEN %s AND %s
         """, (start_date, end_date))
 
         total_row = await cursor.fetchone()
@@ -252,7 +253,7 @@ async def get_report(
                 ON LH.MaCauHinh = CHDV.MaCauHinh
             JOIN CHI_NHANH CN
                 ON CN.MaChiNhanh = CHDV.MaChiNhanh
-            WHERE LH.NgayKham BETWEEN ? AND ?
+            WHERE LH.NgayKham BETWEEN %s AND %s
             GROUP BY CN.MaChiNhanh
         """, (start_date, end_date))
 
@@ -268,7 +269,7 @@ async def get_report(
                 ON LH.MaCauHinh = CHDV.MaCauHinh
             JOIN DICH_VU DV
                 ON DV.MaDichVu = CHDV.MaDichVu
-            WHERE LH.NgayKham BETWEEN ? AND ?
+            WHERE LH.NgayKham BETWEEN %s AND %s
             GROUP BY DV.ChuyenKhoa
         """, (start_date, end_date))
 
@@ -284,7 +285,7 @@ async def get_report(
                 ON LH.MaCauHinh = CHDV.MaCauHinh
             JOIN DICH_VU DV
                 ON DV.MaDichVu = CHDV.MaDichVu
-            WHERE LH.NgayKham BETWEEN ? AND ?
+            WHERE LH.NgayKham BETWEEN %s AND %s
             GROUP BY DV.MaDichVu
             ORDER BY SoLan DESC
             LIMIT 1

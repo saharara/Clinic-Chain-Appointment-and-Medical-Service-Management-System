@@ -29,13 +29,13 @@ async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str):
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
             WHERE
-                CNDV.MaChiNhanh = ?
+                CNDV.MaChiNhanh = %s
                 AND (
-                    LH.MaLichHen = ?
-                    OR BN.CCCD = ?
-                    OR BN.SDT = ?
-                    OR BN.MaBenhAn = ?
-                    OR BN.HoTen LIKE ?
+                    LH.MaLichHen = %s
+                    OR BN.CCCD = %s
+                    OR BN.SDT = %s
+                    OR BN.MaBenhAn = %s
+                    OR BN.HoTen LIKE %s
                 )
             ORDER BY LH.NgayKham, LH.CaKham, LH.STT
             """,
@@ -86,7 +86,7 @@ async def checkin_patient(
             FROM LICH_HEN LH
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
-            WHERE LH.MaLichHen = ?
+            WHERE LH.MaLichHen = %s
             """,
             (ma_lich_hen,),
         )
@@ -106,14 +106,14 @@ async def checkin_patient(
                 "data": None,
             }
 
-        if lich_hen["TrangThai"] == "Chờ khám":
+        if lich_hen["TrangThai"] == "Chờ khám" and lich_hen.get("MaLeTan"):
             return {
                 "success": False,
                 "message": "Bệnh nhân đã check-in trước đó.",
                 "data": None,
             }
 
-        if lich_hen["TrangThai"] != "Đã xác nhận":
+        if lich_hen["TrangThai"] != "Chờ khám":
             return {
                 "success": False,
                 "message": "Lịch hẹn không hợp lệ để check-in.",
@@ -127,9 +127,9 @@ async def checkin_patient(
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
             WHERE
-                CNDV.MaChiNhanh = ?
-                AND LH.MaBacSi = ?
-                AND LH.NgayKham = ?
+                CNDV.MaChiNhanh = %s
+                AND LH.MaBacSi = %s
+                AND LH.NgayKham = %s
                 AND LH.TrangThai IN ('Chờ khám', 'Đang khám')
             """,
             (
@@ -145,9 +145,9 @@ async def checkin_patient(
             """
             UPDATE LICH_HEN
             SET TrangThai = 'Chờ khám',
-                STT = ?,
-                MaLeTan = ?
-            WHERE MaLichHen = ?
+                STT = %s,
+                MaLeTan = %s
+            WHERE MaLichHen = %s
             """,
             (queue_number, ma_le_tan, ma_lich_hen),
         )
@@ -207,9 +207,9 @@ async def get_waiting_list_by_doctor(
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
             WHERE
-                LH.MaBacSi = ?
-                AND CNDV.MaChiNhanh = ?
-                AND LH.NgayKham = ?
+                LH.MaBacSi = %s
+                AND CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
                 AND LH.TrangThai = 'Chờ khám'
             ORDER BY LH.STT, LH.CaKham
             """,

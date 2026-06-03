@@ -17,7 +17,7 @@ async def login_doctor(
         cursor = await conn.execute("""
             SELECT *
             FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (MaBacSi,))
 
         row = await cursor.fetchone()
@@ -42,10 +42,12 @@ async def login_doctor(
             "success": True,
             "message": "Đăng nhập thành công",
             "data": {
+                "role": "Bác sĩ",
                 "MaBacSi": bacsi.MaBacSi,
                 "HoTen": bacsi.HoTen,
                 "ChuyenKhoa": bacsi.ChuyenKhoa,
                 "SDT": bacsi.SDT,
+                "MatKhau": bacsi.MatKhau,
             }
         }
 
@@ -61,7 +63,7 @@ async def login_patient(cccd: str, password: str):
         cursor = await conn.execute("""
             SELECT *
             FROM BENH_NHAN
-            WHERE CCCD = ?
+            WHERE CCCD = %s
         """, (cccd,))
 
         row = await cursor.fetchone()
@@ -86,6 +88,7 @@ async def login_patient(cccd: str, password: str):
             "success": True,
             "message": "Đăng nhập thành công",
             "data": {
+                "role": "Bệnh nhân",
                 "MaBenhAn": benhnhan.MaBenhAn,
                 "HoTen": benhnhan.HoTen,
                 "CCCD": benhnhan.CCCD,
@@ -93,6 +96,7 @@ async def login_patient(cccd: str, password: str):
                 "GioiTinh": benhnhan.GioiTinh,
                 "SDT": benhnhan.SDT,
                 "DiaChi": benhnhan.DiaChi,
+                "MatKhau": benhnhan.MatKhau,
                 "MaSoBHYT": benhnhan.MaSoBHYT,
                 "KyTuDauBHYT": benhnhan.KyTuDauBHYT,
             }
@@ -114,7 +118,7 @@ async def login_le_tan(
         cursor = await conn.execute("""
             SELECT *
             FROM LE_TAN
-            WHERE MaLeTan = ?
+            WHERE MaLeTan = %s
         """, (MaLeTan,))
 
         row = await cursor.fetchone()
@@ -139,9 +143,11 @@ async def login_le_tan(
             "success": True,
             "message": "Đăng nhập thành công",
             "data": {
+                "role": "Lễ tân",
                 "MaLeTan": letan.MaLeTan,
                 "HoTen": letan.HoTen,
                 "SDT": letan.SDT,
+                "MatKhau": letan.MatKhau,
                 "MaChiNhanh": letan.MaChiNhanh,
             }
         }
@@ -162,7 +168,7 @@ async def login_xet_nghiemVien(
         cursor = await conn.execute("""
             SELECT *
             FROM XET_NGHIEM_VIEN
-            WHERE MaXNV = ?
+            WHERE MaXNV = %s
         """, (MaXetNghiemVien,))
 
         row = await cursor.fetchone()
@@ -187,9 +193,11 @@ async def login_xet_nghiemVien(
             "success": True,
             "message": "Đăng nhập thành công",
             "data": {
+                "role": "Xét nghiệm viên",
                 "MaXNV": xnv.MaXNV,
                 "HoTen": xnv.HoTen,
                 "SDT": xnv.SDT,
+                "MatKhau": xnv.MatKhau,
                 "MaChiNhanh": xnv.MaChiNhanh,
             }
         }
@@ -212,12 +220,13 @@ async def login_admin(
     password: str
 ):
 
-    if username == "admin" and password == "admin":
+    if username == "admin" and password in ("admin", "admin123"):
 
         return {
             "success": True,
             "message": "Đăng nhập thành công",
             "data": {
+                "role": "Admin",
                 "username": username
             }
         }
@@ -244,7 +253,7 @@ async def create_doctor_account(
         cursor = await conn.execute("""
             SELECT *
             FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (MaBacSi,))
 
         existed = await cursor.fetchone()
@@ -264,7 +273,7 @@ async def create_doctor_account(
                 SDT,
                 MatKhau
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             MaBacSi,
             name,
@@ -307,7 +316,7 @@ async def delete_doctor_account(
         cursor = await conn.execute("""
             SELECT *
             FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (MaBacSi,))
 
         doctor = await cursor.fetchone()
@@ -321,7 +330,7 @@ async def delete_doctor_account(
 
         await conn.execute("""
             DELETE FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (MaBacSi,))
 
         await conn.commit()
@@ -351,7 +360,7 @@ async def create_xnv_account(
         cursor = await conn.execute("""
             SELECT *
             FROM XET_NGHIEM_VIEN
-            WHERE MaXNV = ?
+            WHERE MaXNV = %s
         """, (MaXNV,))
 
         existed = await cursor.fetchone()
@@ -371,7 +380,7 @@ async def create_xnv_account(
                 MatKhau,
                 MaChiNhanh
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             MaXNV,
             name,
@@ -406,7 +415,7 @@ async def delete_xnv_account(
         cursor = await conn.execute("""
             SELECT *
             FROM XET_NGHIEM_VIEN
-            WHERE MaXNV = ?
+            WHERE MaXNV = %s
         """, (MaXNV,))
 
         xnv = await cursor.fetchone()
@@ -420,7 +429,7 @@ async def delete_xnv_account(
 
         await conn.execute("""
             DELETE FROM XET_NGHIEM_VIEN
-            WHERE MaXNV = ?
+            WHERE MaXNV = %s
         """, (MaXNV,))
 
         await conn.commit()
@@ -447,7 +456,7 @@ async def change_doctor_password(
         cursor = await conn.execute("""
             SELECT *
             FROM BAC_SI
-            WHERE MaBacSi = ?
+            WHERE MaBacSi = %s
         """, (MaBacSi,))
 
         doctor = await cursor.fetchone()
@@ -461,8 +470,8 @@ async def change_doctor_password(
 
         await conn.execute("""
             UPDATE BAC_SI
-            SET MatKhau = ?
-            WHERE MaBacSi = ?
+            SET MatKhau = %s
+            WHERE MaBacSi = %s
         """, (
             new_password,
             MaBacSi
@@ -492,7 +501,7 @@ async def change_xnv_password(
         cursor = await conn.execute("""
             SELECT *
             FROM XET_NGHIEM_VIEN
-            WHERE MaXNV = ?
+            WHERE MaXNV = %s
         """, (MaXNV,))
 
         xnv = await cursor.fetchone()
@@ -506,8 +515,8 @@ async def change_xnv_password(
 
         await conn.execute("""
             UPDATE XET_NGHIEM_VIEN
-            SET MatKhau = ?
-            WHERE MaXNV = ?
+            SET MatKhau = %s
+            WHERE MaXNV = %s
         """, (
             new_password,
             MaXNV

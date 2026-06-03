@@ -9,6 +9,8 @@ venv/
 env/
 .env
 .env.*
+!.env.example
+!Backend/.env.example
 
 # Backend local runtime
 Backend/venv/
