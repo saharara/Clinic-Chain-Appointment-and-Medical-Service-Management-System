@@ -20,6 +20,16 @@ import './App.css'
 
 const BACKEND_URL = 'http://127.0.0.1:8000'
 
+const EMPTY_CATALOG_DATA = {
+  branches: [],
+  services: [],
+  diseases: [],
+  medicines: [],
+  bhyt: [],
+  doctorSchedules: [],
+  meta: {},
+}
+
 const INITIAL_PATIENT_ACCOUNTS = [
   {
     MaBenhAn: 'BN001',
@@ -304,6 +314,9 @@ export default function App() {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
   const [notifications, setNotifications] = useState([])
   const [scheduleAdjustments, setScheduleAdjustments] = useState([])
+  const [catalogData, setCatalogData] = useState(EMPTY_CATALOG_DATA)
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogError, setCatalogError] = useState('')
   const toastTimerRef = useRef(null)
 
   const showNotification = (message, type = 'success') => {
@@ -361,148 +374,145 @@ export default function App() {
     ])
   }
 
+  const loadCatalogData = async () => {
+    setCatalogLoading(true)
+    setCatalogError('')
+
+    const endpoints = {
+      branches: '/catalog/branches',
+      services: '/catalog/services',
+      diseases: '/catalog/diseases',
+      medicines: '/catalog/medicines',
+      bhyt: '/catalog/bhyt',
+      doctorSchedules: '/catalog/doctor-schedules?from_date=2026-06-05&to_date=2026-06-30',
+    }
+
+    try {
+      const entries = await Promise.all(
+        Object.entries(endpoints).map(async ([key, endpoint]) => {
+          const response = await fetch(`${BACKEND_URL}${endpoint}`)
+          const result = await response.json()
+
+          if (!response.ok || !result?.success) {
+            throw new Error(result?.message || `Không thể tải ${key}`)
+          }
+
+          return [key, result]
+        }),
+      )
+
+      const nextCatalog = entries.reduce(
+        (accumulator, [key, result]) => ({
+          ...accumulator,
+          [key]: Array.isArray(result.data) ? result.data : [],
+          meta: {
+            ...accumulator.meta,
+            [key]: result.meta || null,
+          },
+        }),
+        { ...EMPTY_CATALOG_DATA, meta: {} },
+      )
+
+      setCatalogData(nextCatalog)
+      console.info('CATALOG_LOADED', {
+        branches: nextCatalog.branches.length,
+        services: nextCatalog.services.length,
+        diseases: nextCatalog.diseases.length,
+        medicines: nextCatalog.medicines.length,
+        bhyt: nextCatalog.bhyt.length,
+        doctorSchedules: nextCatalog.doctorSchedules.length,
+        meta: nextCatalog.meta,
+      })
+
+      return nextCatalog
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể nạp dữ liệu danh mục hệ thống.'
+      setCatalogError(message)
+      throw error
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
+
+  const getLoginRequest = (selectedRole, loginName, loginPassword) => {
+    const normalizedLoginName = loginName.trim()
+
+    if (selectedRole === 'patient') {
+      return {
+        endpoint: '/auth/login-patient',
+        payload: { cccd: normalizedLoginName, password: loginPassword },
+      }
+    }
+
+    if (selectedRole === 'doctor') {
+      return {
+        endpoint: '/auth/login-doctor',
+        payload: { MaBacSi: normalizedLoginName, username: normalizedLoginName, password: loginPassword },
+      }
+    }
+
+    if (selectedRole === 'letan') {
+      return {
+        endpoint: '/auth/login-le-tan',
+        payload: { MaLeTan: normalizedLoginName, username: normalizedLoginName, password: loginPassword },
+      }
+    }
+
+    if (selectedRole === 'xnv') {
+      return {
+        endpoint: '/auth/login_xet_nghiem_vien',
+        payload: { MaXNV: normalizedLoginName, username: normalizedLoginName, password: loginPassword },
+      }
+    }
+
+    return {
+      endpoint: '/auth/login_admin',
+      payload: { username: normalizedLoginName, password: loginPassword },
+    }
+  }
+
+  const normalizeLoggedInUser = (selectedRole, loginName, userData) => {
+    const normalizedLoginName = loginName.trim()
+    const displayName =
+      selectedRole === 'admin'
+        ? 'Quản trị viên hệ thống'
+        : userData?.HoTen || userData?.name || userData?.username || normalizedLoginName
+    const userId =
+      userData?.MaBenhAn ||
+      userData?.MaBacSi ||
+      userData?.MaLeTan ||
+      userData?.MaXNV ||
+      userData?.CCCD ||
+      userData?.username ||
+      normalizedLoginName
+
+    return {
+      ...userData,
+      name: displayName,
+      id: userId,
+      loginRole: selectedRole,
+      MatKhau: userData?.MatKhau || password,
+      MaBenhAn: userData?.MaBenhAn,
+      MaBacSi: userData?.MaBacSi,
+      MaLeTan: userData?.MaLeTan,
+      MaXNV: userData?.MaXNV,
+      CCCD: userData?.CCCD || (selectedRole === 'patient' ? normalizedLoginName : userData?.CCCD),
+      HoTen: userData?.HoTen || displayName,
+      MaChiNhanh: userData?.MaChiNhanh || '',
+      TenChiNhanh: userData?.TenChiNhanh || '',
+    }
+  }
+
   const handleLogin = async (event) => {
     event.preventDefault()
 
-    if (role === 'admin' && username === 'admin' && password === 'admin123') {
-      setCurrentUser({ name: 'Quản trị viên hệ thống', id: 'admin' })
-      setMode('admin')
-      return
-    }
-
     const normalizedUsername = username.trim()
-    const mockPatient = patientAccounts.find(
-      (patient) => role === 'patient' && patient.CCCD === normalizedUsername && patient.MatKhau === password,
-    )
-
-    if (mockPatient) {
-      setCurrentUser({
-        ...mockPatient,
-        name: mockPatient.HoTen,
-        id: mockPatient.CCCD,
-      })
-      setMode('patient')
+    if (!normalizedUsername || !password) {
+      showNotification('Vui lòng nhập đầy đủ tài khoản và mật khẩu.', 'error')
       return
     }
 
-    const mockReceptionists = [
-      {
-        id: 'LT001',
-        name: 'Phạm Minh Thư',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
-      },
-      {
-        id: 'LT002',
-        name: 'Nguyễn Hoàng Yến',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
-      },
-    ]
-    const mockReceptionist = mockReceptionists.find(
-      (receptionist) =>
-        role === 'letan' && receptionist.id === username && receptionist.MatKhau === password,
-    )
-
-    if (mockReceptionist) {
-      setCurrentUser(mockReceptionist)
-      setMode('letan')
-      return
-    }
-
-    const mockTechnicians = [
-      {
-        id: 'XNV001',
-        name: 'Trần Văn Cường',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
-      },
-      {
-        id: 'XNV002',
-        name: 'Vũ Hồng Ngọc',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
-      },
-    ]
-    const mockTechnician = mockTechnicians.find(
-      (technician) =>
-        role === 'xnv' && technician.id === username && technician.MatKhau === password,
-    )
-
-    if (mockTechnician) {
-      setCurrentUser(mockTechnician)
-      setMode('xnv')
-      return
-    }
-
-    const mockDoctors = [
-      {
-        id: 'BS001',
-        MaBacSi: 'BS001',
-        name: 'Nguyễn Văn An',
-        HoTen: 'Nguyễn Văn An',
-        ChuyenKhoa: 'Nội tổng quát',
-        SDT: '0911222333',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
-      },
-      {
-        id: 'BS002',
-        MaBacSi: 'BS002',
-        name: 'Lê Thị Bình',
-        HoTen: 'Lê Thị Bình',
-        ChuyenKhoa: 'Răng hàm mặt',
-        SDT: '0922333444',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_CG',
-        TenChiNhanh: 'Medicare - Cơ sở Cầu Giấy',
-      },
-      {
-        id: 'BS015',
-        MaBacSi: 'BS015',
-        name: 'Võ Thị Sáu',
-        HoTen: 'Võ Thị Sáu',
-        ChuyenKhoa: 'Tai mũi họng',
-        SDT: '0936789012',
-        MatKhau: '123456',
-        MaChiNhanh: 'CN_HBT',
-        TenChiNhanh: 'Medicare - Cơ sở Hai Bà Trưng',
-      },
-    ]
-    const mockDoctor = mockDoctors.find(
-      (doctor) => role === 'doctor' && doctor.id === username && doctor.MatKhau === password,
-    )
-
-    if (mockDoctor) {
-      setCurrentUser(mockDoctor)
-      setMode('doctor')
-      return
-    }
-
-    let endpoint = ''
-    let payload = {}
-
-    if (role === 'patient') {
-      endpoint = '/auth/login-patient'
-      payload = { cccd: normalizedUsername, password }
-    } else if (role === 'doctor') {
-      endpoint = '/auth/login-doctor'
-      payload = { MaBacSi: username, password }
-    } else if (role === 'letan') {
-      endpoint = '/auth/login-le-tan'
-      payload = { MaLeTan: username, password }
-    } else if (role === 'xnv') {
-      endpoint = '/auth/login_xet_nghiem_vien'
-      payload = { MaXetNghiemVien: username, password }
-    } else if (role === 'admin') {
-      endpoint = '/auth/login_admin'
-      payload = { username, password }
-    }
+    const { endpoint, payload } = getLoginRequest(role, normalizedUsername, password)
 
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
@@ -510,62 +520,21 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const data = await response.json()
+      const result = await response.json()
 
-		      if (response.ok) {
-        const fallbackPatient = patientAccounts.find(
-          (patient) => role === 'patient' && patient.CCCD === normalizedUsername,
-        )
-        const fallbackReceptionist = mockReceptionists.find(
-          (receptionist) => role === 'letan' && receptionist.id === username,
-        )
-        const fallbackTechnician = mockTechnicians.find(
-          (technician) => role === 'xnv' && technician.id === username,
-        )
-        const fallbackDoctor = mockDoctors.find(
-          (doctor) => role === 'doctor' && doctor.id === username,
-        )
-		        setCurrentUser({
-          name:
-            data?.HoTen ||
-            data?.name ||
-            fallbackPatient?.HoTen ||
-            fallbackReceptionist?.name ||
-            fallbackTechnician?.name ||
-            fallbackDoctor?.name ||
-            username,
-          id: role === 'patient' ? normalizedUsername : username,
-          MaBenhAn: data?.MaBenhAn || data?.ma_benh_an || fallbackPatient?.MaBenhAn,
-          HoTen: data?.HoTen || data?.hoten || fallbackPatient?.HoTen || fallbackDoctor?.HoTen,
-          NgaySinh: data?.NgaySinh || data?.ngaysinh || fallbackPatient?.NgaySinh,
-          GioiTinh: data?.GioiTinh || data?.gioitinh || fallbackPatient?.GioiTinh,
-          CCCD: data?.CCCD || data?.cccd || fallbackPatient?.CCCD,
-          DiaChi: data?.DiaChi || data?.diachi || fallbackPatient?.DiaChi,
-          MaSoBHYT: data?.MaSoBHYT || data?.ma_so_bhyt || fallbackPatient?.MaSoBHYT,
-          KyTuDauBHYT: data?.KyTuDauBHYT || data?.ky_tu_bhyt || fallbackPatient?.KyTuDauBHYT,
-          MaBacSi: fallbackDoctor?.MaBacSi,
-          ChuyenKhoa: fallbackDoctor?.ChuyenKhoa,
-          SDT: data?.SDT || data?.sdt || fallbackPatient?.SDT || fallbackDoctor?.SDT,
-          MatKhau: password,
-          ...(fallbackReceptionist || fallbackTechnician || fallbackDoctor
-            ? {
-                MaChiNhanh:
-                  fallbackReceptionist?.MaChiNhanh ||
-                  fallbackTechnician?.MaChiNhanh ||
-                  fallbackDoctor?.MaChiNhanh,
-                TenChiNhanh:
-                  fallbackReceptionist?.TenChiNhanh ||
-                  fallbackTechnician?.TenChiNhanh ||
-                  fallbackDoctor?.TenChiNhanh,
-              }
-            : {}),
-        })
-		        setMode(role)
-		      } else {
-        showNotification(`Đăng nhập thất bại: ${data.detail || 'Sai tài khoản hoặc mật khẩu'}`, 'error')
+      if (!response.ok || !result?.success) {
+        showNotification(result?.message || result?.detail || 'Sai tài khoản hoặc mật khẩu.', 'error')
+        return
       }
-    } catch {
-      showNotification('Không thể kết nối đến Backend FastAPI! Bạn đã bật Uvicorn chưa?', 'error')
+
+      const loggedInUser = normalizeLoggedInUser(role, normalizedUsername, result.data || {})
+      await loadCatalogData()
+      setCurrentUser(loggedInUser)
+      setMode(role)
+      showNotification('Đăng nhập thành công.', 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể kết nối đến Backend FastAPI! Bạn đã bật Uvicorn chưa?'
+      showNotification(message, 'error')
     }
   }
 
@@ -651,6 +620,7 @@ export default function App() {
 	        showNotification={showNotification}
 	        addPatientNotifications={addPatientNotifications}
 	        addScheduleAdjustment={addScheduleAdjustment}
+	        catalogData={catalogData}
 	      />,
 	    )
 	  }
@@ -661,12 +631,18 @@ export default function App() {
 	        onLogout={handleLogout}
 	        showNotification={showNotification}
 	        scheduleAdjustments={scheduleAdjustments}
+	        catalogData={catalogData}
 	      />,
 	    )
 	  }
 	  if (mode === 'letan') {
 	    return renderWithToast(
-	      <ReceptionistDashboard user={currentUser} onLogout={handleLogout} showNotification={showNotification} />,
+	      <ReceptionistDashboard
+	        user={currentUser}
+	        onLogout={handleLogout}
+	        showNotification={showNotification}
+	        catalogData={catalogData}
+	      />,
 	    )
 	  }
 	  if (mode === 'xnv') {
@@ -676,6 +652,7 @@ export default function App() {
 	        onLogout={handleLogout}
 	        showNotification={showNotification}
 	        onUpdateUser={handleUpdateCurrentUser}
+	        catalogData={catalogData}
 	      />,
 	    )
 	  }
@@ -688,6 +665,7 @@ export default function App() {
 	        showNotification={showNotification}
 	        notifications={notifications}
 	        onMarkNotificationsRead={markPatientNotificationsRead}
+	        catalogData={catalogData}
 	      />,
 	    )
 	  }
@@ -752,8 +730,9 @@ export default function App() {
                   onChange={setPassword}
                 />
 
-                <button type="submit" className="submit-button">
-                  Đăng nhập
+                {catalogError && <p className="auth-catalog-error">{catalogError}</p>}
+                <button type="submit" className="submit-button" disabled={catalogLoading}>
+                  {catalogLoading ? 'Đang nạp dữ liệu hệ thống...' : 'Đăng nhập'}
                 </button>
               </form>
             )}
@@ -3467,7 +3446,7 @@ function AdminDashboard({
   )
 }
 
-function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments = [] }) {
+function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments = [], catalogData = EMPTY_CATALOG_DATA }) {
   const [doctorProfile, setDoctorProfile] = useState({
     MaBacSi: user?.MaBacSi || user?.id || 'BS001',
     HoTen: user?.HoTen || user?.name || 'Nguyễn Văn An',
@@ -3817,6 +3796,10 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     },
   ])
 
+  const effectiveServices = catalogData?.services?.length ? catalogData.services : services
+  const effectiveDiseases = catalogData?.diseases?.length ? catalogData.diseases : diseases
+  const effectiveMedicines = catalogData?.medicines?.length ? catalogData.medicines : medicines
+
   const getPatient = (maBenhAn) =>
     patients.find((patient) => patient.MaBenhAn === maBenhAn) || {
       MaBenhAn: maBenhAn,
@@ -3825,19 +3808,19 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     }
 
   const getService = (maDichVu) =>
-    services.find((service) => service.MaDichVu === maDichVu) || {
+    effectiveServices.find((service) => service.MaDichVu === maDichVu) || {
       MaDichVu: maDichVu,
       TenDichVu: maDichVu,
     }
 
   const getDisease = (maBenh) =>
-    diseases.find((disease) => disease.MaBenh === maBenh) || {
+    effectiveDiseases.find((disease) => disease.MaBenh === maBenh) || {
       MaBenh: maBenh,
       TenBenh: 'Chưa xác định',
     }
 
   const getMedicine = (maThuoc) =>
-    medicines.find((medicine) => medicine.MaThuoc === maThuoc) || {
+    effectiveMedicines.find((medicine) => medicine.MaThuoc === maThuoc) || {
       MaThuoc: maThuoc,
       TenThuoc: maThuoc,
       DonViTinh: '',
@@ -3883,16 +3866,22 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
   const buildCurrentVisitId = (booking) =>
     booking ? `LK_${booking.MaLichHen.replace(/\D/g, '').padStart(3, '0')}` : ''
 
-  const labServices = services.filter((service) => service.LoaiDichVu === 'Xét nghiệm')
-  const treatmentServices = services.filter((service) => service.LoaiDichVu === 'Điều trị')
-  const filteredDiseaseSuggestions = diseases
+  const labServices = effectiveServices.filter((service) => service.LoaiDichVu === 'Xét nghiệm')
+  const treatmentServices = effectiveServices.filter((service) => service.LoaiDichVu === 'Điều trị')
+  const selectedLabServiceId = labServices.some((service) => service.MaDichVu === clinicalForm.MaXetNghiem)
+    ? clinicalForm.MaXetNghiem
+    : labServices[0]?.MaDichVu || ''
+  const selectedTreatmentServiceId = treatmentServices.some((service) => service.MaDichVu === clinicalForm.MaDieuTri)
+    ? clinicalForm.MaDieuTri
+    : treatmentServices[0]?.MaDichVu || ''
+  const filteredDiseaseSuggestions = effectiveDiseases
     .filter((disease) => {
       const keyword = diagnosisSearch.trim().toLowerCase()
       if (!keyword) return true
       return [disease.MaBenh, disease.TenBenh].join(' ').toLowerCase().includes(keyword)
     })
     .slice(0, 6)
-  const filteredMedicineSuggestions = medicines
+  const filteredMedicineSuggestions = effectiveMedicines
     .filter((medicine) => {
       const keyword = medicineSearch.trim().toLowerCase()
       if (!keyword) return true
@@ -4097,17 +4086,22 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
       return
     }
 
+    if (!selectedLabServiceId) {
+      notify('Không có dịch vụ xét nghiệm khả dụng trong danh mục.', 'error')
+      return
+    }
+
     const newLabOrder = {
       MaChiTietXN: `CTXN_DR_${String(labDetails.length + 1).padStart(3, '0')}`,
       MaLuotKham: currentVisitId,
-      MaDichVu: clinicalForm.MaXetNghiem,
+      MaDichVu: selectedLabServiceId,
       KetQuaXetNghiem: '',
       MaXNV: '',
       TrangThaiXetNghiem: 'Chưa thực hiện',
       PaymentToken: null,
     }
     setLabDetails((current) => [...current, newLabOrder])
-    notify(`Đã thêm chỉ định ${getService(clinicalForm.MaXetNghiem).TenDichVu}.`)
+    notify(`Đã thêm chỉ định ${getService(selectedLabServiceId).TenDichVu}.`)
   }
 
   const handleMockLabResult = (maChiTietXN) => {
@@ -4133,6 +4127,11 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
       return
     }
 
+    if (!selectedTreatmentServiceId) {
+      notify('Không có dịch vụ điều trị khả dụng trong danh mục.', 'error')
+      return
+    }
+
     const totalSessions = Number(clinicalForm.TongSoBuoi)
     if (!Number.isInteger(totalSessions) || totalSessions <= 0) {
       notify('Tổng số buổi điều trị phải là số nguyên dương.', 'error')
@@ -4142,13 +4141,13 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     const newTreatment = {
       MaLichTrinh: `LTDT_DR_${String(treatmentSchedules.length + 1).padStart(3, '0')}`,
       MaLuotKham: currentVisitId,
-      MaDichVu: clinicalForm.MaDieuTri,
+      MaDichVu: selectedTreatmentServiceId,
       TongSoBuoi: totalSessions,
       SoBuoiDaLam: 0,
       TrangThai: 'Chưa thực hiện',
     }
     setTreatmentSchedules((current) => [...current, newTreatment])
-    notify(`Đã chỉ định liệu trình ${getService(clinicalForm.MaDieuTri).TenDichVu}.`)
+    notify(`Đã chỉ định liệu trình ${getService(selectedTreatmentServiceId).TenDichVu}.`)
   }
 
   const handlePauseForLab = () => {
@@ -4444,9 +4443,11 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                     <h3>1. Chỉ định Xét nghiệm & Giám sát kết quả Realtime</h3>
                     <div className="doctor-inline-order">
                       <select
-                        value={clinicalForm.MaXetNghiem}
+                        value={selectedLabServiceId}
                         onChange={(event) => handleClinicalFormChange('MaXetNghiem', event.target.value)}
+                        disabled={labServices.length === 0}
                       >
+                        {labServices.length === 0 && <option value="">Không có dịch vụ xét nghiệm</option>}
                         {labServices.map((service) => (
                           <option key={service.MaDichVu} value={service.MaDichVu}>
                             {service.TenDichVu}
@@ -4626,9 +4627,11 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                     <h3>3. Chỉ định Liệu trình Điều trị Chuyên sâu</h3>
                     <div className="doctor-inline-order">
                       <select
-                        value={clinicalForm.MaDieuTri}
+                        value={selectedTreatmentServiceId}
                         onChange={(event) => handleClinicalFormChange('MaDieuTri', event.target.value)}
+                        disabled={treatmentServices.length === 0}
                       >
+                        {treatmentServices.length === 0 && <option value="">Không có dịch vụ điều trị</option>}
                         {treatmentServices.map((service) => (
                           <option key={service.MaDichVu} value={service.MaDichVu}>
                             {service.TenDichVu}

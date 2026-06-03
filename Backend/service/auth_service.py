@@ -47,6 +47,7 @@ async def login_doctor(
                 "HoTen": bacsi.HoTen,
                 "ChuyenKhoa": bacsi.ChuyenKhoa,
                 "SDT": bacsi.SDT,
+                "MaChiNhanh": None,
                 "MatKhau": bacsi.MatKhau,
             }
         }

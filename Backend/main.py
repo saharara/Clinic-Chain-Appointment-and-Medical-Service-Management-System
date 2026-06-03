@@ -7,6 +7,7 @@ from api.letan_api import router as letan_router
 from api.patient_api import router as patient_router
 from api.xnv_api import router as xnv_router
 from api.doctor_api import router as doctor_router
+from api.catalog_api import router as catalog_router
 from database import close_pool, get_connection
 
 app = FastAPI(title="Clinic Chain Appointment & Medical Service API")
@@ -42,6 +43,7 @@ app.include_router(letan_router, prefix="/letan", tags=["LeTan"])
 app.include_router(patient_router, prefix="/patient", tags=["Patient"])
 app.include_router(xnv_router, prefix="/xnv", tags=["XetNghiemVien"])
 app.include_router(doctor_router, prefix="/doctor", tags=["Doctor"])
+app.include_router(catalog_router, prefix="/catalog", tags=["Catalog"])
 
 
 @app.get("/")
@@ -53,4 +55,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-

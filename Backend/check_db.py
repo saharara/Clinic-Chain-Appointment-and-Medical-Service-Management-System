@@ -33,6 +33,7 @@ async def get_pool() -> aiomysql.Pool:
             autocommit=False,
             minsize=1,
             maxsize=10,
+            connect_timeout=10,
             cursorclass=aiomysql.DictCursor,
         )
 

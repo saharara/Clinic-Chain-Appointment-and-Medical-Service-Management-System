@@ -363,6 +363,22 @@
   box-shadow: 0 14px 24px rgba(75, 111, 255, 0.24);
 }
 
+.submit-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  box-shadow: none;
+}
+
+.auth-catalog-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .switch-text {
   margin: 4px 0 0;
   text-align: center;

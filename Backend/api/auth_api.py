@@ -39,20 +39,22 @@ async def read_request_data(request: Request) -> dict:
 @router.post("/login-doctor", response_model=ResponseModel)
 async def login_doctor_api(request: Request):
     data = await read_request_data(request)
-    return await login_doctor(data.get("MaBacSi"), data.get("password"))
+    ma_bac_si = data.get("MaBacSi") or data.get("ma_bac_si") or data.get("username")
+    return await login_doctor(ma_bac_si, data.get("password"))
 
 
 @router.post("/login-patient", response_model=ResponseModel)
 async def login_patient_api(request: Request):
     data = await read_request_data(request)
-    cccd = data.get("cccd") or data.get("CCCD") or data.get("MaBenhNhan")
+    cccd = data.get("cccd") or data.get("CCCD") or data.get("username") or data.get("MaBenhNhan")
     return await login_patient(cccd, data.get("password"))
 
 
 @router.post("/login-le-tan", response_model=ResponseModel)
 async def login_le_tan_api(request: Request):
     data = await read_request_data(request)
-    return await login_le_tan(data.get("MaLeTan"), data.get("password"))
+    ma_le_tan = data.get("MaLeTan") or data.get("ma_le_tan") or data.get("username")
+    return await login_le_tan(ma_le_tan, data.get("password"))
 
 
 @router.post("/logout", response_model=ResponseModel)
@@ -63,7 +65,12 @@ async def logout():
 @router.post("/login_xet_nghiem_vien", response_model=ResponseModel)
 async def login_xet_nghiem_vien_api(request: Request):
     data = await read_request_data(request)
-    ma_xet_nghiem_vien = data.get("MaXetNghiemVien") or data.get("MaXNV")
+    ma_xet_nghiem_vien = (
+        data.get("MaXetNghiemVien")
+        or data.get("MaXNV")
+        or data.get("ma_xnv")
+        or data.get("username")
+    )
     return await login_xet_nghiemVien(ma_xet_nghiem_vien, data.get("password"))
 
 
