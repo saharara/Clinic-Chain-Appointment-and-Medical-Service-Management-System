@@ -57,6 +57,7 @@ class MySQLConnection:
         await self._connection.rollback()
 
     async def close(self) -> None:
+        await self._connection.rollback()
         self._pool.release(self._connection)
 
 

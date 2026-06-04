@@ -1,6 +1,244 @@
 import uuid
+from datetime import datetime
 
 from check_db import get_connection
+
+
+ACTIVE_APPOINTMENT_STATUSES = ("Đã xác nhận", "Chờ khám", "Đang khám", "Chờ kết luận")
+
+
+async def table_has_column(conn, table_name: str, column_name: str) -> bool:
+    cursor = await conn.execute("""
+        SELECT COUNT(*) AS total
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE
+            TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = %s
+            AND COLUMN_NAME = %s
+    """, (table_name, column_name))
+    row = await cursor.fetchone()
+    return bool(row and row["total"])
+
+
+async def insert_schedule_notification(conn, ma_lich_hen: str, ma_benh_an: str, noi_dung: str):
+    ma_thong_bao = f"TB_{uuid.uuid4().hex[:10].upper()}"
+    has_notification_status = await table_has_column(conn, "LICH_SU_THONG_BAO", "TrangThai")
+    thoi_gian_gui = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if has_notification_status:
+        await conn.execute("""
+            INSERT INTO LICH_SU_THONG_BAO (
+                MaThongBao,
+                MaLichHen,
+                MaBenhAn,
+                NoiDung,
+                TrangThai,
+                Loi,
+                ThoiGianGui
+            )
+            VALUES (%s, %s, %s, %s, 'Success', NULL, %s)
+        """, (
+            ma_thong_bao,
+            ma_lich_hen,
+            ma_benh_an,
+            noi_dung,
+            thoi_gian_gui,
+        ))
+    else:
+        await conn.execute("""
+            INSERT INTO LICH_SU_THONG_BAO (
+                MaThongBao,
+                MaLichHen,
+                MaBenhAn,
+                NoiDung,
+                Loi,
+                ThoiGianGui
+            )
+            VALUES (%s, %s, %s, %s, NULL, %s)
+        """, (
+            ma_thong_bao,
+            ma_lich_hen,
+            ma_benh_an,
+            noi_dung,
+            thoi_gian_gui,
+        ))
+
+    return ma_thong_bao
+
+
+async def fetch_schedule_by_identity(conn, schedule_id=None, ma_lich_truc=None):
+    has_schedule_status = await table_has_column(conn, "LICH_TRUC", "TrangThai")
+    status_select = (
+        "COALESCE(LTR.TrangThai, 'Đang hoạt động') AS TrangThai"
+        if has_schedule_status
+        else "'Đang hoạt động' AS TrangThai"
+    )
+
+    if schedule_id is not None:
+        cursor = await conn.execute(f"""
+            SELECT
+                LTR.id,
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
+                BS.SDT,
+                LTR.MaChiNhanh,
+                CN.TenChiNhanh,
+                LTR.NgayTruc,
+                LTR.CaTruc,
+                {status_select}
+            FROM LICH_TRUC LTR
+            JOIN BAC_SI BS
+                ON LTR.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH CN
+                ON LTR.MaChiNhanh = CN.MaChiNhanh
+            WHERE LTR.id = %s
+            LIMIT 1
+        """, (schedule_id,))
+    else:
+        cursor = await conn.execute(f"""
+            SELECT
+                LTR.id,
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
+                BS.SDT,
+                LTR.MaChiNhanh,
+                CN.TenChiNhanh,
+                LTR.NgayTruc,
+                LTR.CaTruc,
+                {status_select}
+            FROM LICH_TRUC LTR
+            JOIN BAC_SI BS
+                ON LTR.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH CN
+                ON LTR.MaChiNhanh = CN.MaChiNhanh
+            WHERE LTR.MaLichTruc = %s
+            LIMIT 1
+        """, (ma_lich_truc,))
+
+    row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def get_schedule_appointments(conn, schedule):
+    cursor = await conn.execute("""
+        SELECT
+            LH.MaLichHen,
+            LH.MaBenhAn,
+            BN.HoTen AS TenBenhNhan,
+            LH.MaCauHinh,
+            LH.NgayKham,
+            LH.CaKham,
+            LH.STT,
+            LH.TrangThai,
+            LH.MaBacSi,
+            DV.TenDichVu
+        FROM LICH_HEN LH
+        JOIN BENH_NHAN BN
+            ON LH.MaBenhAn = BN.MaBenhAn
+        JOIN CHI_NHANH_DICH_VU CNDV
+            ON LH.MaCauHinh = CNDV.MaCauHinh
+        JOIN DICH_VU DV
+            ON CNDV.MaDichVu = DV.MaDichVu
+        WHERE
+            CNDV.MaChiNhanh = %s
+            AND LH.NgayKham = %s
+            AND LH.CaKham = %s
+            AND LH.MaBacSi = %s
+            AND LH.TrangThai IN ('Đã xác nhận', 'Chờ khám', 'Đang khám', 'Chờ kết luận')
+        ORDER BY LH.STT, LH.MaLichHen
+    """, (
+        schedule["MaChiNhanh"],
+        schedule["NgayTruc"],
+        schedule["CaTruc"],
+        schedule["MaBacSi"],
+    ))
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def get_admin_doctor_schedules(from_date: str = None, to_date: str = None, ma_bac_si: str = None):
+    conn = await get_connection()
+    try:
+        where_clauses = []
+        params = []
+
+        if from_date:
+            where_clauses.append("LTR.NgayTruc >= %s")
+            params.append(from_date)
+
+        if to_date:
+            where_clauses.append("LTR.NgayTruc <= %s")
+            params.append(to_date)
+
+        if ma_bac_si and ma_bac_si != "all":
+            where_clauses.append("LTR.MaBacSi = %s")
+            params.append(ma_bac_si)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        has_schedule_status = await table_has_column(conn, "LICH_TRUC", "TrangThai")
+        status_select = "MAX(COALESCE(LTR.TrangThai, 'Đang hoạt động')) AS TrangThai" if has_schedule_status else "'Đang hoạt động' AS TrangThai"
+
+        cursor = await conn.execute(
+            f"""
+            SELECT
+                LTR.id,
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
+                BS.SDT,
+                LTR.MaChiNhanh,
+                CN.TenChiNhanh,
+                LTR.NgayTruc,
+                LTR.CaTruc,
+                {status_select},
+                COUNT(LH.MaLichHen) AS SoLichHenDangCo
+            FROM LICH_TRUC LTR
+            JOIN BAC_SI BS
+                ON LTR.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH CN
+                ON LTR.MaChiNhanh = CN.MaChiNhanh
+            LEFT JOIN CHI_NHANH_DICH_VU CNDV
+                ON LTR.MaChiNhanh = CNDV.MaChiNhanh
+            LEFT JOIN LICH_HEN LH
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+                AND LH.NgayKham = LTR.NgayTruc
+                AND LH.CaKham = LTR.CaTruc
+                AND LH.MaBacSi = LTR.MaBacSi
+                AND LH.TrangThai IN ('Đã xác nhận', 'Chờ khám', 'Đang khám', 'Chờ kết luận')
+            {where_sql}
+            GROUP BY
+                LTR.id,
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen,
+                BS.ChuyenKhoa,
+                BS.SDT,
+                LTR.MaChiNhanh,
+                CN.TenChiNhanh,
+                LTR.NgayTruc,
+                LTR.CaTruc
+            ORDER BY LTR.NgayTruc, LTR.CaTruc, LTR.MaChiNhanh, LTR.MaBacSi
+            """,
+            tuple(params),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+
+        return {
+            "success": True,
+            "message": "Lấy danh sách lịch trực Admin thành công.",
+            "data": rows,
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
 
 async def create_branch(
     ten_chi_nhanh: str,
@@ -163,13 +401,21 @@ async def create_doctor_schedule(
                 "data": None
             }
 
-        # check duplicate schedule
-        cursor = await conn.execute("""
+        # check duplicate active schedule
+        has_schedule_status = await table_has_column(conn, "LICH_TRUC", "TrangThai")
+        duplicate_status_filter = (
+            "AND COALESCE(TrangThai, 'Đang hoạt động') <> 'Đã hủy'"
+            if has_schedule_status
+            else ""
+        )
+
+        cursor = await conn.execute(f"""
             SELECT id, MaLichTruc
             FROM LICH_TRUC
             WHERE MaBacSi = %s
               AND NgayTruc = %s
               AND CaTruc = %s
+              {duplicate_status_filter}
         """, (ma_bac_si, ngay_truc, ca_truc))
 
         existed = await cursor.fetchone()
@@ -221,6 +467,242 @@ async def create_doctor_schedule(
             "data": None
         }
 
+    finally:
+        await conn.close()
+
+
+async def cancel_doctor_schedule(schedule_id=None, ma_lich_truc: str = None):
+    conn = await get_connection()
+    try:
+        schedule = await fetch_schedule_by_identity(conn, schedule_id=schedule_id, ma_lich_truc=ma_lich_truc)
+        if not schedule:
+            return {
+                "success": False,
+                "message": "Không tìm thấy ca trực cần hủy.",
+                "data": None,
+            }
+
+        if schedule.get("TrangThai") == "Đã hủy":
+            return {
+                "success": False,
+                "message": "Ca trực này đã được hủy trước đó.",
+                "data": None,
+            }
+
+        affected_appointments = await get_schedule_appointments(conn, schedule)
+        notification_rows = []
+
+        for appointment in affected_appointments:
+            message = (
+                f"⚠️ CẢNH BÁO SỰ CỐ: Ca khám ngày {schedule['NgayTruc']} - "
+                f"Ca {schedule['CaTruc']} của bạn đã bị hủy do bác sĩ gặp sự cố đột xuất. "
+                "Vui lòng đặt lại lịch mới hoặc liên hệ hotline để được hỗ trợ xếp lịch lại!"
+            )
+            await insert_schedule_notification(
+                conn,
+                appointment["MaLichHen"],
+                appointment["MaBenhAn"],
+                message,
+            )
+            notification_rows.append({
+                "MaBenhAn": appointment["MaBenhAn"],
+                "MaBenhNhan": appointment["MaBenhAn"],
+                "MaLichHen": appointment["MaLichHen"],
+                "message": message,
+            })
+
+        await conn.execute("""
+            UPDATE LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            SET LH.TrangThai = 'Đã hủy'
+            WHERE
+                CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
+                AND LH.CaKham = %s
+                AND LH.MaBacSi = %s
+                AND LH.TrangThai IN ('Đã xác nhận', 'Chờ khám', 'Đang khám', 'Chờ kết luận')
+        """, (
+            schedule["MaChiNhanh"],
+            schedule["NgayTruc"],
+            schedule["CaTruc"],
+            schedule["MaBacSi"],
+        ))
+
+        has_schedule_status = await table_has_column(conn, "LICH_TRUC", "TrangThai")
+        if has_schedule_status:
+            await conn.execute("""
+                UPDATE LICH_TRUC
+                SET TrangThai = 'Đã hủy'
+                WHERE id = %s
+            """, (schedule["id"],))
+        else:
+            await conn.execute("""
+                DELETE FROM LICH_TRUC
+                WHERE id = %s
+            """, (schedule["id"],))
+
+        await conn.commit()
+
+        return {
+            "success": True,
+            "message": "Đã hủy ca trực và phát thông báo cho bệnh nhân liên quan.",
+            "data": {
+                "schedule": {
+                    **schedule,
+                    "TrangThai": "Đã hủy",
+                    "SoLichHenDangCo": 0,
+                },
+                "affectedPatients": notification_rows,
+                "affectedCount": len(notification_rows),
+            },
+        }
+    except Exception as exc:
+        await conn.rollback()
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
+
+
+async def transfer_doctor_schedule(schedule_id=None, ma_lich_truc: str = None, new_ma_bac_si: str = None):
+    conn = await get_connection()
+    try:
+        if not new_ma_bac_si:
+            return {
+                "success": False,
+                "message": "Vui lòng chọn bác sĩ mới.",
+                "data": None,
+            }
+
+        schedule = await fetch_schedule_by_identity(conn, schedule_id=schedule_id, ma_lich_truc=ma_lich_truc)
+        if not schedule:
+            return {
+                "success": False,
+                "message": "Không tìm thấy ca trực cần điều chuyển.",
+                "data": None,
+            }
+
+        if schedule.get("TrangThai") == "Đã hủy":
+            return {
+                "success": False,
+                "message": "Không thể điều chuyển một ca trực đã hủy.",
+                "data": None,
+            }
+
+        doctor_cursor = await conn.execute("""
+            SELECT MaBacSi, HoTen, ChuyenKhoa, SDT
+            FROM BAC_SI
+            WHERE MaBacSi = %s
+            LIMIT 1
+        """, (new_ma_bac_si,))
+        new_doctor = await doctor_cursor.fetchone()
+        if not new_doctor:
+            return {
+                "success": False,
+                "message": "Bác sĩ mới không tồn tại.",
+                "data": None,
+            }
+
+        has_schedule_status = await table_has_column(conn, "LICH_TRUC", "TrangThai")
+        duplicate_status_filter = "AND COALESCE(TrangThai, 'Đang hoạt động') <> 'Đã hủy'" if has_schedule_status else ""
+
+        duplicate_cursor = await conn.execute(f"""
+            SELECT id
+            FROM LICH_TRUC
+            WHERE
+                MaBacSi = %s
+                AND MaChiNhanh = %s
+                AND NgayTruc = %s
+                AND CaTruc = %s
+                AND id <> %s
+                {duplicate_status_filter}
+            LIMIT 1
+        """, (
+            new_ma_bac_si,
+            schedule["MaChiNhanh"],
+            schedule["NgayTruc"],
+            schedule["CaTruc"],
+            schedule["id"],
+        ))
+        if await duplicate_cursor.fetchone():
+            return {
+                "success": False,
+                "message": "Bác sĩ mới đã có lịch trực tại chi nhánh, ngày và ca này.",
+                "data": None,
+            }
+
+        affected_appointments = await get_schedule_appointments(conn, schedule)
+        notification_rows = []
+
+        for appointment in affected_appointments:
+            message = (
+                f"📢 THÔNG BÁO THAY ĐỔI: Ca khám ngày {schedule['NgayTruc']} - "
+                f"Ca {schedule['CaTruc']} của bạn đã được điều chuyển sang Bác sĩ "
+                f"{new_doctor['HoTen']} phụ trách do thay đổi lịch công tác của viện. "
+                "Giờ khám giữ nguyên không đổi!"
+            )
+            await insert_schedule_notification(
+                conn,
+                appointment["MaLichHen"],
+                appointment["MaBenhAn"],
+                message,
+            )
+            notification_rows.append({
+                "MaBenhAn": appointment["MaBenhAn"],
+                "MaBenhNhan": appointment["MaBenhAn"],
+                "MaLichHen": appointment["MaLichHen"],
+                "message": message,
+            })
+
+        await conn.execute("""
+            UPDATE LICH_TRUC
+            SET MaBacSi = %s
+            WHERE id = %s
+        """, (new_ma_bac_si, schedule["id"]))
+
+        await conn.execute("""
+            UPDATE LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            SET LH.MaBacSi = %s
+            WHERE
+                CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
+                AND LH.CaKham = %s
+                AND LH.MaBacSi = %s
+                AND LH.TrangThai IN ('Đã xác nhận', 'Chờ khám', 'Đang khám', 'Chờ kết luận')
+        """, (
+            new_ma_bac_si,
+            schedule["MaChiNhanh"],
+            schedule["NgayTruc"],
+            schedule["CaTruc"],
+            schedule["MaBacSi"],
+        ))
+
+        await conn.commit()
+
+        return {
+            "success": True,
+            "message": "Đã điều chuyển bác sĩ trực và phát thông báo cho bệnh nhân liên quan.",
+            "data": {
+                "schedule": {
+                    **schedule,
+                    "MaBacSi": new_ma_bac_si,
+                    "TenBacSi": new_doctor["HoTen"],
+                    "ChuyenKhoa": new_doctor["ChuyenKhoa"],
+                    "SDT": new_doctor["SDT"],
+                    "TrangThai": schedule.get("TrangThai") or "Đang hoạt động",
+                    "SoLichHenDangCo": len(notification_rows),
+                },
+                "oldMaBacSi": schedule["MaBacSi"],
+                "newMaBacSi": new_ma_bac_si,
+                "affectedPatients": notification_rows,
+                "affectedCount": len(notification_rows),
+            },
+        }
+    except Exception as exc:
+        await conn.rollback()
+        return {"success": False, "message": str(exc), "data": None}
     finally:
         await conn.close()
 

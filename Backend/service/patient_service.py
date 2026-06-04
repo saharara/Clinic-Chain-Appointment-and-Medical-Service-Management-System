@@ -139,8 +139,11 @@ async def book_and_pay(
             SELECT
                 DV.MaDichVu,
                 DV.TenDichVu,
+                DV.ChuyenKhoa,
+                DV.LoaiDichVu,
                 DV.GiaGoc,
-                CNDV.MaChiNhanh
+                CNDV.MaChiNhanh,
+                CNDV.SlotGioiHan
             FROM CHI_NHANH_DICH_VU CNDV
             JOIN DICH_VU DV ON CNDV.MaDichVu = DV.MaDichVu
             WHERE CNDV.MaCauHinh = %s
@@ -148,22 +151,82 @@ async def book_and_pay(
         dv_info = await cursor.fetchone()
         if not dv_info:
             return {"success": False, "message": "Không tìm thấy cấu hình dịch vụ.", "data": None}
+
+        if dv_info["LoaiDichVu"] != "Khám lâm sàng":
+            return {
+                "success": False,
+                "message": "Chỉ được đặt lịch trực tuyến cho dịch vụ khám lâm sàng.",
+                "data": None,
+            }
+
+        schedule_cursor = await conn.execute("""
+            SELECT
+                LTR.id,
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa
+            FROM LICH_TRUC LTR
+            JOIN BAC_SI BS
+                ON LTR.MaBacSi = BS.MaBacSi
+            WHERE
+                LTR.MaChiNhanh = %s
+                AND LTR.NgayTruc = %s
+                AND LTR.CaTruc = %s
+                AND LTR.MaBacSi = %s
+            LIMIT 1
+        """, (
+            dv_info["MaChiNhanh"],
+            ngay_kham,
+            ca_kham,
+            ma_bac_si,
+        ))
+        schedule_info = await schedule_cursor.fetchone()
+        if not schedule_info:
+            return {
+                "success": False,
+                "message": "Bác sĩ đã chọn không có lịch trực tại chi nhánh, ngày và ca này.",
+                "data": None,
+            }
+
+        if schedule_info["ChuyenKhoa"] != dv_info["ChuyenKhoa"]:
+            return {
+                "success": False,
+                "message": "Bác sĩ đã chọn không phụ trách chuyên khoa của dịch vụ này.",
+                "data": None,
+            }
+
+        booked_cursor = await conn.execute("""
+            SELECT COUNT(*) AS BookedCount
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE
+                CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
+                AND LH.CaKham = %s
+                AND LH.TrangThai != 'Đã hủy'
+        """, (
+            dv_info["MaChiNhanh"],
+            ngay_kham,
+            ca_kham,
+        ))
+        booked_row = await booked_cursor.fetchone()
+        booked_count = booked_row["BookedCount"] if booked_row else 0
+        slot_limit = dv_info["SlotGioiHan"] or 15
+
+        if booked_count >= slot_limit:
+            return {
+                "success": False,
+                "message": "Ca khám này đã hết slot tại chi nhánh đã chọn.",
+                "data": None,
+            }
         
         # Tính Giá Cuối (Main Success Scenario)
         ty_le = bn_info['TyLeHuong'] if bn_info and bn_info['TyLeHuong'] else 0.0
         gia_cuoi = int(dv_info['GiaGoc'] * (1 - ty_le))
         
         ma_lich_hen = f"LH_{uuid.uuid4().hex[:6].upper()}"
-        stt_cursor = await conn.execute(
-            """
-            SELECT COALESCE(MAX(STT), 0) + 1 AS NextSTT
-            FROM LICH_HEN
-            WHERE MaCauHinh = %s
-            """,
-            (ma_cau_hinh,),
-        )
-        stt_row = await stt_cursor.fetchone()
-        stt = stt_row["NextSTT"] if stt_row else 1
 
         # Giả lập đã thanh toán thành công qua QR
         payment_token = f"TOK_{uuid.uuid4().hex[:10]}"
@@ -181,14 +244,13 @@ async def book_and_pay(
                 TrangThai,
                 MaBacSi
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Chờ khám', %s)
+            VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, 'Đã xác nhận', %s)
         """, (
             ma_lich_hen,
             ma_benh_an,
             ma_cau_hinh,
             ngay_kham,
             ca_kham,
-            stt,
             payment_token,
             gia_cuoi,
             ma_bac_si,
@@ -206,9 +268,9 @@ async def book_and_pay(
                 "MaChiNhanh": dv_info["MaChiNhanh"],
                 "NgayKham": ngay_kham,
                 "CaKham": ca_kham,
-                "STT": stt,
+                "STT": None,
                 "GiaCuoi": gia_cuoi,
-                "TrangThai": "Chờ khám",
+                "TrangThai": "Đã xác nhận",
                 "MaBacSi": ma_bac_si,
                 "PaymentToken": payment_token,
             },
@@ -269,35 +331,220 @@ async def get_patient_appointments(ma_benh_an: str):
     finally:
         await conn.close()
 
-async def book_treatment(ma_lich_trinh: str, ma_benh_an: str, ngay: str, ca: int):
-    conn = await get_connection()
-    # Đảm bảo lịch trình này thuộc về bệnh nhân (Bảo mật)
-    cursor = await conn.execute("""
-        SELECT LTDT.TrangThai FROM LICH_TRINH_DIEU_TRI LTDT
-        JOIN LUOT_KHAM LK ON LTDT.MaLuotKham = LK.MaLuotKham
-        JOIN LICH_HEN LH ON LK.MaLichHen = LH.MaLichHen
-        WHERE LTDT.MaLichTrinh = %s AND LH.MaBenhAn = %s
-    """, (ma_lich_trinh, ma_benh_an))
-    
-    row = await cursor.fetchone()
-    if not row or row['TrangThai'] != 'Chưa đặt lịch':
-        await conn.close()
-        return {"success": False, "message": "Chỉ định không hợp lệ hoặc đã đặt lịch.", "data": None}
-        
-    await conn.execute("""
-        UPDATE LICH_TRINH_DIEU_TRI 
-        SET NgayThucHien = %s, CaKham = %s, TrangThai = 'Chờ khám'
-        WHERE MaLichTrinh = %s
-    """, (ngay, ca, ma_lich_trinh))
-    
-    await conn.commit()
-    response = {"success": True, "message": "Hẹn lịch điều trị thành công.", "data": {
-        "MaLichTrinh": ma_lich_trinh,
-        "NgayThucHien": ngay,
-        "CaKham": ca
-    }}
-    await conn.close()
-    return response
+async def book_treatment(
+    ma_lich_trinh: str,
+    ma_benh_an: str,
+    ma_cau_hinh: str,
+    ngay: str,
+    ca: int,
+    ma_bac_si: str,
+):
+    conn = None
+    try:
+        conn = await get_connection()
+
+        cursor = await conn.execute("""
+            SELECT
+                LTDT.MaLichTrinh,
+                LTDT.MaLuotKham,
+                LTDT.MaDichVu,
+                LTDT.BuoiSo,
+                LTDT.TrangThai,
+                LTDT.MaLichHen,
+                LH.MaBenhAn
+            FROM LICH_TRINH_DIEU_TRI LTDT
+            JOIN LUOT_KHAM LK
+                ON LTDT.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            WHERE
+                LTDT.MaLichTrinh = %s
+                AND LH.MaBenhAn = %s
+            LIMIT 1
+        """, (ma_lich_trinh, ma_benh_an))
+        treatment = await cursor.fetchone()
+
+        if not treatment:
+            return {"success": False, "message": "Không tìm thấy buổi điều trị của bệnh nhân.", "data": None}
+
+        if treatment["TrangThai"] != "Chưa đặt lịch" or treatment.get("MaLichHen"):
+            return {"success": False, "message": "Buổi điều trị này đã được đặt lịch.", "data": None}
+
+        cursor = await conn.execute("""
+            SELECT BN.KyTuDauBHYT, BHYT.TyLeHuong
+            FROM BENH_NHAN BN
+            LEFT JOIN DANH_MUC_BHYT BHYT
+                ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
+            WHERE BN.MaBenhAn = %s
+        """, (ma_benh_an,))
+        patient_info = await cursor.fetchone()
+        if not patient_info:
+            return {"success": False, "message": "Không tìm thấy bệnh nhân.", "data": None}
+
+        cursor = await conn.execute("""
+            SELECT
+                CNDV.MaCauHinh,
+                CNDV.MaChiNhanh,
+                CNDV.SlotGioiHan,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                DV.ChuyenKhoa,
+                DV.LoaiDichVu,
+                DV.GiaGoc
+            FROM CHI_NHANH_DICH_VU CNDV
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            WHERE CNDV.MaCauHinh = %s
+            LIMIT 1
+        """, (ma_cau_hinh,))
+        service_info = await cursor.fetchone()
+        if not service_info:
+            return {"success": False, "message": "Không tìm thấy cấu hình dịch vụ điều trị.", "data": None}
+
+        if service_info["MaDichVu"] != treatment["MaDichVu"]:
+            return {"success": False, "message": "Dịch vụ đặt lịch không khớp với liệu trình được chỉ định.", "data": None}
+
+        if service_info["LoaiDichVu"] != "Điều trị":
+            return {"success": False, "message": "Chỉ được đặt lịch điều trị cho dịch vụ thuộc loại Điều trị.", "data": None}
+
+        schedule_cursor = await conn.execute("""
+            SELECT
+                LTR.MaLichTruc,
+                LTR.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa
+            FROM LICH_TRUC LTR
+            JOIN BAC_SI BS
+                ON LTR.MaBacSi = BS.MaBacSi
+            WHERE
+                LTR.MaChiNhanh = %s
+                AND LTR.NgayTruc = %s
+                AND LTR.CaTruc = %s
+                AND LTR.MaBacSi = %s
+            LIMIT 1
+        """, (
+            service_info["MaChiNhanh"],
+            ngay,
+            ca,
+            ma_bac_si,
+        ))
+        schedule_info = await schedule_cursor.fetchone()
+        if not schedule_info:
+            return {
+                "success": False,
+                "message": "Bác sĩ đã chọn không có lịch trực tại chi nhánh, ngày và ca này.",
+                "data": None,
+            }
+
+        if schedule_info["ChuyenKhoa"] != service_info["ChuyenKhoa"]:
+            return {
+                "success": False,
+                "message": "Bác sĩ đã chọn không phụ trách chuyên khoa của dịch vụ điều trị này.",
+                "data": None,
+            }
+
+        booked_cursor = await conn.execute("""
+            SELECT COUNT(*) AS BookedCount
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE
+                CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
+                AND LH.CaKham = %s
+                AND LH.TrangThai != 'Đã hủy'
+        """, (
+            service_info["MaChiNhanh"],
+            ngay,
+            ca,
+        ))
+        booked_row = await booked_cursor.fetchone()
+        booked_count = booked_row["BookedCount"] if booked_row else 0
+        slot_limit = service_info["SlotGioiHan"] or 15
+
+        if booked_count >= slot_limit:
+            return {"success": False, "message": "Ca điều trị này đã hết slot tại chi nhánh đã chọn.", "data": None}
+
+        ty_le = patient_info["TyLeHuong"] if patient_info and patient_info["TyLeHuong"] else 0.0
+        gia_cuoi = int(service_info["GiaGoc"] * (1 - ty_le))
+        ma_lich_hen = f"LH_{uuid.uuid4().hex[:6].upper()}"
+        payment_token = f"TOK_TREAT_{uuid.uuid4().hex[:10]}"
+
+        await conn.execute("""
+            INSERT INTO LICH_HEN (
+                MaLichHen,
+                MaBenhAn,
+                MaCauHinh,
+                NgayKham,
+                CaKham,
+                STT,
+                PaymentToken,
+                GiaCuoi,
+                TrangThai,
+                MaBacSi
+            )
+            VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, 'Đã xác nhận', %s)
+        """, (
+            ma_lich_hen,
+            ma_benh_an,
+            ma_cau_hinh,
+            ngay,
+            ca,
+            payment_token,
+            gia_cuoi,
+            ma_bac_si,
+        ))
+
+        await conn.execute("""
+            UPDATE LICH_TRINH_DIEU_TRI
+            SET
+                NgayThucHien = %s,
+                CaKham = %s,
+                MaLichHen = %s,
+                TrangThai = 'Đã đặt lịch'
+            WHERE MaLichTrinh = %s
+        """, (ngay, ca, ma_lich_hen, ma_lich_trinh))
+
+        await conn.commit()
+        return {
+            "success": True,
+            "message": "Thanh toán và đặt lịch điều trị thành công.",
+            "data": {
+                "appointment": {
+                    "MaLichHen": ma_lich_hen,
+                    "MaBenhAn": ma_benh_an,
+                    "MaCauHinh": ma_cau_hinh,
+                    "MaDichVu": service_info["MaDichVu"],
+                    "TenDichVu": service_info["TenDichVu"],
+                    "MaChiNhanh": service_info["MaChiNhanh"],
+                    "NgayKham": ngay,
+                    "CaKham": ca,
+                    "STT": None,
+                    "PaymentToken": payment_token,
+                    "GiaCuoi": gia_cuoi,
+                    "TrangThai": "Đã xác nhận",
+                    "MaBacSi": ma_bac_si,
+                    "TenBacSi": schedule_info["TenBacSi"],
+                },
+                "treatment": {
+                    "MaLichTrinh": ma_lich_trinh,
+                    "MaLuotKham": treatment["MaLuotKham"],
+                    "MaDichVu": treatment["MaDichVu"],
+                    "MaLichHen": ma_lich_hen,
+                    "BuoiSo": treatment["BuoiSo"],
+                    "NgayThucHien": ngay,
+                    "CaKham": ca,
+                    "TrangThai": "Đã đặt lịch",
+                },
+            },
+        }
+    except Exception as exc:
+        if conn:
+            await conn.rollback()
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        if conn:
+            await conn.close()
 
 async def request_refund(ma_lich_hen: str, ma_benh_an: str, bank_info: str):
     conn = await get_connection()
@@ -330,6 +577,7 @@ async def get_medical_history(ma_benh_an: str):
                 LH.CaKham,
                 LH.MaBacSi,
                 BS.HoTen AS TenBacSi,
+                BS.SDT AS SDTBacSi,
                 CNDV.MaChiNhanh,
                 CN.TenChiNhanh,
                 CNDV.MaDichVu AS MaDichVuKham,
@@ -396,6 +644,7 @@ async def get_medical_history(ma_benh_an: str):
             cur_dieu_tri = await conn.execute("""
                 SELECT
                     LTDT.MaLichTrinh,
+                    LTDT.MaLichHen,
                     DV.MaDichVu,
                     DV.TenDichVu,
                     LTDT.BuoiSo,
@@ -419,12 +668,23 @@ async def get_medical_history(ma_benh_an: str):
 async def receive_notification(ma_benh_an: str):
     conn = await get_connection()
     try:
-        cursor = await conn.execute("""
+        status_cursor = await conn.execute("""
+            SELECT COUNT(*) AS total
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE
+                TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'LICH_SU_THONG_BAO'
+                AND COLUMN_NAME = 'TrangThai'
+        """)
+        status_row = await status_cursor.fetchone()
+        status_select = "TrangThai" if status_row and status_row["total"] else "'Success' AS TrangThai"
+
+        cursor = await conn.execute(f"""
             SELECT
                 MaThongBao,
                 MaLichHen,
                 NoiDung,
-                TrangThai,
+                {status_select},
                 ThoiGianGui
             FROM LICH_SU_THONG_BAO
             WHERE MaBenhAn = %s

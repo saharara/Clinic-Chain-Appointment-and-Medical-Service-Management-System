@@ -110,11 +110,13 @@ CREATE TABLE IF NOT EXISTS CHI_NHANH_DICH_VU (
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS LICH_TRUC (
-    MaLichTruc TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    MaLichTruc TEXT NOT NULL,
     MaBacSi TEXT NOT NULL,
     MaChiNhanh TEXT NOT NULL,
     NgayTruc TEXT NOT NULL, -- Định dạng YYYY-MM-DD
     CaTruc INTEGER NOT NULL CHECK (CaTruc IN (1, 2, 3, 4)), -- Chốt cứng 4 ca
+    TrangThai TEXT NOT NULL DEFAULT 'Đang hoạt động' CHECK (TrangThai IN ('Đang hoạt động', 'Đã hủy')),
     FOREIGN KEY (MaBacSi) REFERENCES BAC_SI(MaBacSi) ON DELETE CASCADE,
     FOREIGN KEY (MaChiNhanh) REFERENCES CHI_NHANH(MaChiNhanh) ON DELETE CASCADE
 );
@@ -211,9 +213,11 @@ CREATE TABLE IF NOT EXISTS LICH_TRINH_DIEU_TRI (
     BuoiSo INTEGER NOT NULL CHECK (BuoiSo > 0),
     NgayThucHien TEXT, -- Sẽ được cập nhật khi bệnh nhân tự đặt lịch cho buổi này
     CaKham INTEGER CHECK (CaKham IN (NULL, 1, 2, 3, 4)),
+    MaLichHen TEXT,
     TrangThai TEXT NOT NULL CHECK (TrangThai IN ('Chưa đặt lịch', 'Đã đặt lịch', 'Hoàn thành')),
     FOREIGN KEY (MaLuotKham) REFERENCES LUOT_KHAM(MaLuotKham) ON DELETE CASCADE,
-    FOREIGN KEY (MaDichVu) REFERENCES DICH_VU(MaDichVu)
+    FOREIGN KEY (MaDichVu) REFERENCES DICH_VU(MaDichVu),
+    FOREIGN KEY (MaLichHen) REFERENCES LICH_HEN(MaLichHen) ON DELETE SET NULL
 );
 
 -- =========================================================================

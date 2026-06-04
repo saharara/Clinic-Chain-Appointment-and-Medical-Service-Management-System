@@ -10,6 +10,18 @@ class ResponseModel(BaseModel):
     message: str
     data: Optional[Any] = None
 
+
+class CancelDoctorScheduleRequest(BaseModel):
+    id: Optional[int] = None
+    MaLichTruc: Optional[str] = None
+
+
+class TransferDoctorScheduleRequest(BaseModel):
+    id: Optional[int] = None
+    MaLichTruc: Optional[str] = None
+    newMaBacSi: str
+
+
 @router.post(
     "/branches/create",
     response_model=ResponseModel
@@ -64,6 +76,36 @@ async def create_doctor_schedule_api(
         ca_truc=ca_truc
     )
     return result
+
+
+@router.get("/doctor-schedules", response_model=ResponseModel)
+async def get_admin_doctor_schedules_api(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    ma_bac_si: Optional[str] = Query(None),
+):
+    return await get_admin_doctor_schedules(
+        from_date=from_date,
+        to_date=to_date,
+        ma_bac_si=ma_bac_si,
+    )
+
+
+@router.post("/doctor-schedules/cancel", response_model=ResponseModel)
+async def cancel_doctor_schedule_api(request: CancelDoctorScheduleRequest):
+    return await cancel_doctor_schedule(
+        schedule_id=request.id,
+        ma_lich_truc=request.MaLichTruc,
+    )
+
+
+@router.post("/doctor-schedules/transfer", response_model=ResponseModel)
+async def transfer_doctor_schedule_api(request: TransferDoctorScheduleRequest):
+    return await transfer_doctor_schedule(
+        schedule_id=request.id,
+        ma_lich_truc=request.MaLichTruc,
+        new_ma_bac_si=request.newMaBacSi,
+    )
 
 @router.post(
     "/reports",

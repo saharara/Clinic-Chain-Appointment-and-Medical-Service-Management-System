@@ -10,6 +10,7 @@ class LichTruc:
 	MaChiNhanh: str
 	NgayTruc: str
 	CaTruc: int
+	TrangThai: str = "Đang hoạt động"
 
 	__tablename__ = "LICH_TRUC"
 
@@ -22,4 +23,5 @@ class LichTruc:
 			MaChiNhanh=d.get("MaChiNhanh"),
 			NgayTruc=d.get("NgayTruc"),
 			CaTruc=d.get("CaTruc"),
+			TrangThai=d.get("TrangThai", "Đang hoạt động"),
 		)

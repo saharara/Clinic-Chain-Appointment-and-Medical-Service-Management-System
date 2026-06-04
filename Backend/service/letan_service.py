@@ -41,9 +41,9 @@ async def get_checkin_appointments(ma_chi_nhanh: str, ngay: str):
             WHERE
                 CNDV.MaChiNhanh = %s
                 AND LH.NgayKham = %s
-                AND LH.TrangThai = 'Chờ khám'
+                AND LH.TrangThai = 'Đã xác nhận'
                 AND (LH.MaLeTan IS NULL OR LH.MaLeTan = '')
-            ORDER BY LH.CaKham, LH.STT, LH.MaLichHen
+            ORDER BY LH.CaKham, LH.MaLichHen
             """,
             (
                 ma_chi_nhanh,
@@ -62,12 +62,26 @@ async def get_checkin_appointments(ma_chi_nhanh: str, ngay: str):
         await conn.close()
 
 
-async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str):
+async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str, ngay: str = None):
     conn = await get_connection()
 
     try:
+        date_filter_sql = ""
+        params = [
+            ma_chi_nhanh,
+            keyword,
+            keyword,
+            keyword,
+            keyword,
+            f"%{keyword}%",
+        ]
+
+        if ngay:
+            date_filter_sql = "AND LH.NgayKham = %s"
+            params.append(ngay)
+
         cursor = await conn.execute(
-            """
+            f"""
             SELECT
                 LH.MaLichHen,
                 LH.MaBenhAn,
@@ -106,16 +120,10 @@ async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str):
                     OR BN.MaBenhAn = %s
                     OR BN.HoTen LIKE %s
                 )
+                {date_filter_sql}
             ORDER BY LH.NgayKham, LH.CaKham, LH.STT
             """,
-            (
-                ma_chi_nhanh,
-                keyword,
-                keyword,
-                keyword,
-                keyword,
-                f"%{keyword}%",
-            ),
+            tuple(params),
         )
         rows = await cursor.fetchall()
 
@@ -183,10 +191,10 @@ async def checkin_patient(
                 "data": None,
             }
 
-        if lich_hen["TrangThai"] != "Chờ khám":
+        if lich_hen["TrangThai"] != "Đã xác nhận":
             return {
                 "success": False,
-                "message": "Lịch hẹn không hợp lệ để check-in.",
+                "message": "Chỉ lịch hẹn đã xác nhận thanh toán mới được check-in.",
                 "data": None,
             }
 

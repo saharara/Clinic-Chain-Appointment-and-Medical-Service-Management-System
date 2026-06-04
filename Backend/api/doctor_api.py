@@ -29,6 +29,11 @@ class ExamDataRequest(BaseModel):
     don_thuoc: Optional[List[MedicineRequest]] = None
     dieu_tri: Optional[List[TreatmentRequest]] = None
     is_draft: Optional[bool] = False
+
+
+class CompleteTreatmentSessionRequest(BaseModel):
+    ma_lich_hen: str
+    ma_bac_si: str
 @router.get("/doctor/get-patients-by-date")
 async def get_patients(
     ma_bac_si: str = Query(..., description="Mã bác sĩ"),
@@ -56,6 +61,35 @@ async def save_examination(request: ExamDataRequest):
     # Gọi hàm service bạn đã viết
     result = await save_examination_record(exam_data)
     return result
+
+
+@router.post("/complete-treatment-session", response_model=ResponseModel)
+async def complete_treatment_session_api(request: CompleteTreatmentSessionRequest):
+    return await complete_treatment_session(request.ma_lich_hen, request.ma_bac_si)
+
+
 @router.get("/search-patients", response_model=ResponseModel)
 async def search_patients_api(keyword: str = Query(...)):
     return await search_patient_history(keyword)
+
+
+@router.get("/encounter-detail", response_model=ResponseModel)
+async def get_encounter_detail_api(
+    ma_luot_kham: str = Query(...),
+    ma_bac_si: str = Query(...),
+):
+    return await get_encounter_detail(ma_luot_kham, ma_bac_si)
+
+
+@router.get("/completed-encounters", response_model=ResponseModel)
+async def get_doctor_completed_encounters_api(
+    ma_bac_si: str = Query(...),
+):
+    return await get_doctor_completed_encounters(ma_bac_si)
+
+
+@router.get("/patient-history", response_model=ResponseModel)
+async def get_patient_history_for_doctor_api(
+    ma_benh_an: str = Query(...),
+):
+    return await get_patient_history_for_doctor(ma_benh_an)

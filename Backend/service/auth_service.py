@@ -216,6 +216,172 @@ async def logout_service():
     }
 
 
+async def get_session_user(role: str, user_id: str):
+    normalized_role = (role or "").strip().lower()
+    normalized_user_id = (user_id or "").strip()
+
+    if not normalized_role or not normalized_user_id:
+        return {
+            "success": False,
+            "message": "Phiên đăng nhập không hợp lệ.",
+            "data": None,
+        }
+
+    if normalized_role == "admin":
+        if normalized_user_id == "admin":
+            return {
+                "success": True,
+                "message": "Khôi phục phiên Admin thành công.",
+                "data": {
+                    "role": "Admin",
+                    "username": "admin",
+                },
+            }
+
+        return {
+            "success": False,
+            "message": "Phiên Admin không hợp lệ.",
+            "data": None,
+        }
+
+    conn = await get_connection()
+
+    try:
+        if normalized_role == "patient":
+            cursor = await conn.execute("""
+                SELECT *
+                FROM BENH_NHAN
+                WHERE MaBenhAn = %s OR CCCD = %s
+                LIMIT 1
+            """, (normalized_user_id, normalized_user_id))
+            row = await cursor.fetchone()
+
+            if not row:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy tài khoản bệnh nhân.",
+                    "data": None,
+                }
+
+            benhnhan = BenhNhan.from_dict(dict(row))
+            return {
+                "success": True,
+                "message": "Khôi phục phiên bệnh nhân thành công.",
+                "data": {
+                    "role": "Bệnh nhân",
+                    "MaBenhAn": benhnhan.MaBenhAn,
+                    "HoTen": benhnhan.HoTen,
+                    "CCCD": benhnhan.CCCD,
+                    "NgaySinh": benhnhan.NgaySinh,
+                    "GioiTinh": benhnhan.GioiTinh,
+                    "SDT": benhnhan.SDT,
+                    "DiaChi": benhnhan.DiaChi,
+                    "MatKhau": benhnhan.MatKhau,
+                    "MaSoBHYT": benhnhan.MaSoBHYT,
+                    "KyTuDauBHYT": benhnhan.KyTuDauBHYT,
+                },
+            }
+
+        if normalized_role == "doctor":
+            cursor = await conn.execute("""
+                SELECT *
+                FROM BAC_SI
+                WHERE MaBacSi = %s
+                LIMIT 1
+            """, (normalized_user_id,))
+            row = await cursor.fetchone()
+
+            if not row:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy tài khoản bác sĩ.",
+                    "data": None,
+                }
+
+            bacsi = BacSi.from_dict(dict(row))
+            return {
+                "success": True,
+                "message": "Khôi phục phiên bác sĩ thành công.",
+                "data": {
+                    "role": "Bác sĩ",
+                    "MaBacSi": bacsi.MaBacSi,
+                    "HoTen": bacsi.HoTen,
+                    "ChuyenKhoa": bacsi.ChuyenKhoa,
+                    "SDT": bacsi.SDT,
+                    "MaChiNhanh": None,
+                    "MatKhau": bacsi.MatKhau,
+                },
+            }
+
+        if normalized_role == "letan":
+            cursor = await conn.execute("""
+                SELECT *
+                FROM LE_TAN
+                WHERE MaLeTan = %s
+                LIMIT 1
+            """, (normalized_user_id,))
+            row = await cursor.fetchone()
+
+            if not row:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy tài khoản lễ tân.",
+                    "data": None,
+                }
+
+            letan = LeTan.from_dict(dict(row))
+            return {
+                "success": True,
+                "message": "Khôi phục phiên lễ tân thành công.",
+                "data": {
+                    "role": "Lễ tân",
+                    "MaLeTan": letan.MaLeTan,
+                    "HoTen": letan.HoTen,
+                    "SDT": letan.SDT,
+                    "MatKhau": letan.MatKhau,
+                    "MaChiNhanh": letan.MaChiNhanh,
+                },
+            }
+
+        if normalized_role == "xnv":
+            cursor = await conn.execute("""
+                SELECT *
+                FROM XET_NGHIEM_VIEN
+                WHERE MaXNV = %s
+                LIMIT 1
+            """, (normalized_user_id,))
+            row = await cursor.fetchone()
+
+            if not row:
+                return {
+                    "success": False,
+                    "message": "Không tìm thấy tài khoản xét nghiệm viên.",
+                    "data": None,
+                }
+
+            xnv = XetNghiemVien.from_dict(dict(row))
+            return {
+                "success": True,
+                "message": "Khôi phục phiên xét nghiệm viên thành công.",
+                "data": {
+                    "role": "Xét nghiệm viên",
+                    "MaXNV": xnv.MaXNV,
+                    "HoTen": xnv.HoTen,
+                    "SDT": xnv.SDT,
+                    "MatKhau": xnv.MatKhau,
+                    "MaChiNhanh": xnv.MaChiNhanh,
+                },
+            }
+
+        return {
+            "success": False,
+            "message": "Vai trò trong phiên đăng nhập không hợp lệ.",
+            "data": None,
+        }
+    finally:
+        await conn.close()
+
+
 async def login_admin(
     username: str,
     password: str

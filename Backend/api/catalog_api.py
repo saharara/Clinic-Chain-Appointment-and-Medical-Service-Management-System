@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from service.catalog_service import (
     get_bhyt_categories,
+    get_branch_services,
     get_branches,
     get_diseases,
     get_doctor_schedules,
@@ -31,6 +32,11 @@ async def get_branches_api():
 @router.get("/services", response_model=ResponseModel)
 async def get_services_api():
     return await get_services()
+
+
+@router.get("/branch-services", response_model=ResponseModel)
+async def get_branch_services_api():
+    return await get_branch_services()
 
 
 @router.get("/diseases", response_model=ResponseModel)

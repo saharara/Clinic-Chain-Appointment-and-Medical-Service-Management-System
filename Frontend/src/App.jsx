@@ -19,10 +19,39 @@ import medicalTeamImage from './assets/medical-team-cutout.png'
 import './App.css'
 
 const BACKEND_URL = 'http://127.0.0.1:8000'
+const MEDICARE_SESSION_KEY = 'medicare_session'
+
+const getTodayDateKey = () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getFutureDateKey = (daysFromToday) => {
+  const date = new Date()
+  date.setDate(date.getDate() + daysFromToday)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getSessionUserId = (user, selectedRole) => {
+  if (!user) return ''
+  if (selectedRole === 'patient') return user.MaBenhAn || user.CCCD || user.id || ''
+  if (selectedRole === 'doctor') return user.MaBacSi || user.id || ''
+  if (selectedRole === 'letan') return user.MaLeTan || user.id || ''
+  if (selectedRole === 'xnv') return user.MaXNV || user.id || ''
+  if (selectedRole === 'admin') return user.username || user.id || 'admin'
+  return user.id || ''
+}
 
 const EMPTY_CATALOG_DATA = {
   branches: [],
   services: [],
+  branchServices: [],
   diseases: [],
   medicines: [],
   bhyt: [],
@@ -310,6 +339,7 @@ export default function App() {
   const [matKhauDangKy, setMatKhauDangKy] = useState('')
   const [xacNhanMatKhauDangKy, setXacNhanMatKhauDangKy] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
+  const [sessionRestoring, setSessionRestoring] = useState(true)
   const [patientAccounts, setPatientAccounts] = useState(INITIAL_PATIENT_ACCOUNTS)
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
   const [notifications, setNotifications] = useState([])
@@ -341,17 +371,22 @@ export default function App() {
     if (!items.length) return
 
     const createdAt = new Date().toISOString()
-    setNotifications((current) => [
-      ...items.map((item, index) => ({
-        id: `NOTI_${createdAt.replace(/\D/g, '')}_${index}`,
-        MaBenhNhan: item.MaBenhNhan || item.MaBenhAn,
-        MaBenhAn: item.MaBenhAn || item.MaBenhNhan,
-        message: item.message,
-        read: false,
-        createdAt,
-      })),
-      ...current,
-    ])
+    setNotifications((current) => {
+      const existingIds = new Set(current.map((notification) => notification.id))
+      const nextItems = items
+        .map((item, index) => ({
+          id: item.id || item.MaThongBao || `NOTI_${createdAt.replace(/\D/g, '')}_${index}`,
+          MaBenhNhan: item.MaBenhNhan || item.MaBenhAn,
+          MaBenhAn: item.MaBenhAn || item.MaBenhNhan,
+          MaLichHen: item.MaLichHen || '',
+          message: item.message || item.NoiDung || '',
+          read: Boolean(item.read),
+          createdAt: item.createdAt || item.ThoiGianGui || createdAt,
+        }))
+        .filter((item) => item.id && item.message && !existingIds.has(item.id))
+
+      return [...nextItems, ...current]
+    })
   }
 
   const markPatientNotificationsRead = (maBenhAn) => {
@@ -377,14 +412,17 @@ export default function App() {
   const loadCatalogData = async () => {
     setCatalogLoading(true)
     setCatalogError('')
+    const scheduleStartDate = getTodayDateKey()
+    const scheduleEndDate = getFutureDateKey(45)
 
     const endpoints = {
       branches: '/catalog/branches',
       services: '/catalog/services',
+      branchServices: '/catalog/branch-services',
       diseases: '/catalog/diseases',
       medicines: '/catalog/medicines',
       bhyt: '/catalog/bhyt',
-      doctorSchedules: '/catalog/doctor-schedules?from_date=2026-06-05&to_date=2026-06-30',
+      doctorSchedules: `/catalog/doctor-schedules?from_date=${scheduleStartDate}&to_date=${scheduleEndDate}`,
     }
 
     try {
@@ -417,6 +455,7 @@ export default function App() {
       console.info('CATALOG_LOADED', {
         branches: nextCatalog.branches.length,
         services: nextCatalog.services.length,
+        branchServices: nextCatalog.branchServices.length,
         diseases: nextCatalog.diseases.length,
         medicines: nextCatalog.medicines.length,
         bhyt: nextCatalog.bhyt.length,
@@ -503,6 +542,72 @@ export default function App() {
     }
   }
 
+  const saveSession = (selectedRole, user) => {
+    const userId = getSessionUserId(user, selectedRole)
+    if (!userId) return
+
+    window.localStorage.setItem(
+      MEDICARE_SESSION_KEY,
+      JSON.stringify({
+        role: selectedRole,
+        userId,
+        savedAt: Date.now(),
+      }),
+    )
+  }
+
+  const clearSession = () => {
+    window.localStorage.removeItem(MEDICARE_SESSION_KEY)
+  }
+
+  const restoreSession = async () => {
+    const rawSession = window.localStorage.getItem(MEDICARE_SESSION_KEY)
+    if (!rawSession) {
+      setSessionRestoring(false)
+      return
+    }
+
+    try {
+      const parsedSession = JSON.parse(rawSession)
+      if (!parsedSession?.role || !parsedSession?.userId) {
+        clearSession()
+        setSessionRestoring(false)
+        return
+      }
+
+      const response = await fetch(`${BACKEND_URL}/auth/session-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: parsedSession.role,
+          userId: parsedSession.userId,
+        }),
+      })
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Phiên đăng nhập đã hết hạn hoặc không còn hợp lệ.')
+      }
+
+      const restoredUser = normalizeLoggedInUser(parsedSession.role, parsedSession.userId, result.data || {})
+      await loadCatalogData()
+      setRole(parsedSession.role)
+      setCurrentUser(restoredUser)
+      setMode(parsedSession.role)
+      saveSession(parsedSession.role, restoredUser)
+    } catch (error) {
+      clearSession()
+      const message = error instanceof Error ? error.message : 'Không thể khôi phục phiên đăng nhập.'
+      console.warn('SESSION_RESTORE_FAILED', message)
+    } finally {
+      setSessionRestoring(false)
+    }
+  }
+
+  useEffect(() => {
+    restoreSession()
+  }, [])
+
   const handleLogin = async (event) => {
     event.preventDefault()
 
@@ -531,6 +636,7 @@ export default function App() {
       await loadCatalogData()
       setCurrentUser(loggedInUser)
       setMode(role)
+      saveSession(role, loggedInUser)
       showNotification('Đăng nhập thành công.', 'success')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể kết nối đến Backend FastAPI! Bạn đã bật Uvicorn chưa?'
@@ -600,6 +706,7 @@ export default function App() {
   }
 
 	  const handleLogout = () => {
+    clearSession()
 	    setCurrentUser(null)
 	    setUsername('')
     setPassword('')
@@ -609,8 +716,29 @@ export default function App() {
 	  }
 
 	  const handleUpdateCurrentUser = (updatedFields) => {
-	    setCurrentUser((current) => (current ? { ...current, ...updatedFields } : current))
+	    setCurrentUser((current) => {
+      if (!current) return current
+      const nextUser = { ...current, ...updatedFields }
+      saveSession(nextUser.loginRole || mode, nextUser)
+      return nextUser
+    })
 	  }
+
+  if (sessionRestoring) {
+    return renderWithToast(
+      <main className="page-shell">
+        <section className="auth-wrapper">
+          <div className="form-panel auth-session-panel">
+            <div className="brand-header">
+              <img className="brand-logo" src={medicalLogoImage} alt="Logo Medicare" />
+              <span className="brand-name">Medicare</span>
+            </div>
+            <p className="auth-session-text">Đang khôi phục phiên đăng nhập và cập nhật dữ liệu mới nhất...</p>
+          </div>
+        </section>
+      </main>,
+    )
+  }
 
 	  if (mode === 'admin') {
 	    return renderWithToast(
@@ -664,6 +792,7 @@ export default function App() {
 	        onUpdateUser={handleUpdateCurrentUser}
 	        showNotification={showNotification}
 	        notifications={notifications}
+	        addPatientNotifications={addPatientNotifications}
 	        onMarkNotificationsRead={markPatientNotificationsRead}
 	        catalogData={catalogData}
 	      />,
@@ -1227,6 +1356,8 @@ function AdminDashboard({
     { MaLichTruc: 'LT_003', MaBacSi: 'BS002', MaChiNhanh: 'CN_CG', NgayTruc: '2026-06-01', CaTruc: 3, TrangThai: 'Đang hoạt động' },
     { MaLichTruc: 'LT_004', MaBacSi: 'BS003', MaChiNhanh: 'CN_HBT', NgayTruc: '2026-06-01', CaTruc: 1, TrangThai: 'Đang hoạt động' },
   ])
+  const [adminScheduleLoading, setAdminScheduleLoading] = useState(false)
+  const [adminScheduleError, setAdminScheduleError] = useState('')
   const [appointments, setAppointments] = useState([
     {
       MaLichHen: 'LH_001',
@@ -1578,6 +1709,10 @@ function AdminDashboard({
   }
 
   const getAppointmentCountForSchedule = (schedule) => {
+    if (schedule.SoLichHenDangCo !== undefined && schedule.SoLichHenDangCo !== null) {
+      return Number(schedule.SoLichHenDangCo || 0)
+    }
+
     const configIds = branchServices
       .filter((config) => config.MaChiNhanh === schedule.MaChiNhanh)
       .map((config) => config.MaCauHinh)
@@ -1585,8 +1720,9 @@ function AdminDashboard({
     return appointments.filter(
       (appointment) =>
         appointment.NgayKham === schedule.NgayTruc &&
-        appointment.CaKham === schedule.CaTruc &&
+        Number(appointment.CaKham) === Number(schedule.CaTruc) &&
         configIds.includes(appointment.MaCauHinh) &&
+        (appointment.MaBacSi ? appointment.MaBacSi === schedule.MaBacSi : true) &&
         appointment.TrangThai !== 'Đã hủy' &&
         appointment.TrangThai !== 'Đã hủy (Hệ thống hoàn tiền)',
     ).length
@@ -1629,6 +1765,12 @@ function AdminDashboard({
 
     return matchedStartDate && matchedEndDate && matchedDoctor
   })
+
+  useEffect(() => {
+    if (activeMenu === 'schedules') {
+      loadAdminDoctorSchedules()
+    }
+  }, [activeMenu, scheduleFilters.TuNgay, scheduleFilters.DenNgay, scheduleFilters.MaBacSi])
 
   const getReportMonthRangeLabel = (monthValue) => {
     const [year, month] = monthValue.split('-').map(Number)
@@ -2242,6 +2384,64 @@ function AdminDashboard({
 
   const getScheduleSelectionKey = (thu, ca) => `${thu}-${ca}`
 
+  const normalizeAdminSchedule = (schedule) => ({
+    id: schedule.id ?? null,
+    MaLichTruc: schedule.MaLichTruc,
+    MaBacSi: schedule.MaBacSi,
+    TenBacSi: schedule.TenBacSi || '',
+    MaChiNhanh: schedule.MaChiNhanh,
+    TenChiNhanh: schedule.TenChiNhanh || '',
+    NgayTruc: schedule.NgayTruc,
+    CaTruc: Number(schedule.CaTruc),
+    TrangThai: schedule.TrangThai || 'Đang hoạt động',
+    SoLichHenDangCo: Number(schedule.SoLichHenDangCo || 0),
+    SDT: schedule.SDT || '',
+    ChuyenKhoa: schedule.ChuyenKhoa || '',
+  })
+
+  const isSameDoctorSchedule = (leftSchedule, rightSchedule) => {
+    if (!leftSchedule || !rightSchedule) return false
+
+    if (leftSchedule.id && rightSchedule.id) {
+      return Number(leftSchedule.id) === Number(rightSchedule.id)
+    }
+
+    return (
+      leftSchedule.MaLichTruc === rightSchedule.MaLichTruc &&
+      leftSchedule.MaBacSi === rightSchedule.MaBacSi &&
+      leftSchedule.MaChiNhanh === rightSchedule.MaChiNhanh &&
+      leftSchedule.NgayTruc === rightSchedule.NgayTruc &&
+      Number(leftSchedule.CaTruc) === Number(rightSchedule.CaTruc)
+    )
+  }
+
+  const loadAdminDoctorSchedules = async () => {
+    setAdminScheduleLoading(true)
+    setAdminScheduleError('')
+
+    const params = new URLSearchParams()
+    if (scheduleFilters.TuNgay) params.set('from_date', scheduleFilters.TuNgay)
+    if (scheduleFilters.DenNgay) params.set('to_date', scheduleFilters.DenNgay)
+    if (scheduleFilters.MaBacSi !== 'all') params.set('ma_bac_si', scheduleFilters.MaBacSi)
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/admin/doctor-schedules?${params.toString()}`)
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể tải lịch trực từ database.')
+      }
+
+      setDoctorSchedules((result.data || []).map(normalizeAdminSchedule))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải lịch trực từ database.'
+      setAdminScheduleError(message)
+      console.warn('ADMIN_SCHEDULE_LOAD_FAILED', message)
+    } finally {
+      setAdminScheduleLoading(false)
+    }
+  }
+
   const handleToggleScheduleSelection = (thu, ca) => {
     const key = getScheduleSelectionKey(thu, ca)
     setBulkScheduleForm((current) => ({
@@ -2263,7 +2463,7 @@ function AdminDashboard({
     return `${year}-${month}-${day}`
   }
 
-  const handleBulkAssignSchedule = (event) => {
+  const handleBulkAssignSchedule = async (event) => {
     event.preventDefault()
     const activeDoctor = doctors.some((doctor) => doctor.MaNhanSu === bulkScheduleForm.MaBacSi)
     const selectedKeys = Object.entries(bulkScheduleForm.selections)
@@ -2341,13 +2541,45 @@ function AdminDashboard({
       return
     }
 
-    setDoctorSchedules((current) => [...current, ...newSchedules])
-    notify(`Đã xếp ${newSchedules.length} ca trực mới cho ${getDoctorName(bulkScheduleForm.MaBacSi)}.`)
+    try {
+      const createdSchedules = []
+
+      for (const schedule of newSchedules) {
+        const formData = new FormData()
+        formData.append('ma_bac_si', schedule.MaBacSi)
+        formData.append('ma_chi_nhanh', schedule.MaChiNhanh)
+        formData.append('ngay_truc', schedule.NgayTruc)
+        formData.append('ca_truc', String(schedule.CaTruc))
+
+        const response = await fetch(`${BACKEND_URL}/admin/doctor-schedules/create`, {
+          method: 'POST',
+          body: formData,
+        })
+        const result = await response.json()
+
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.message || `Không thể tạo lịch trực ngày ${schedule.NgayTruc} ca ${schedule.CaTruc}.`)
+        }
+
+        createdSchedules.push({
+          ...schedule,
+          id: result.data?.id ?? null,
+          MaLichTruc: result.data?.MaLichTruc || schedule.MaLichTruc,
+        })
+      }
+
+      setDoctorSchedules((current) => [...current, ...createdSchedules])
+      await loadAdminDoctorSchedules()
+      notify(`Đã xếp ${createdSchedules.length} ca trực mới cho ${getDoctorName(bulkScheduleForm.MaBacSi)}.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xếp lịch trực vào database.'
+      notify(message, 'error')
+    }
   }
 
-  const handleCancelSchedule = (schedule) => {
+  const handleCancelSchedule = async (schedule) => {
     const affectedAppointments = getAffectedAppointmentsForSchedule(schedule)
-    const affectedCount = affectedAppointments.length
+    const affectedCount = Number(schedule.SoLichHenDangCo ?? affectedAppointments.length)
     const affectedAppointmentIds = new Set(affectedAppointments.map((appointment) => appointment.MaLichHen))
 
     if (affectedCount > 0) {
@@ -2360,42 +2592,58 @@ function AdminDashboard({
       }
     }
 
-    setAppointments((current) =>
-      current.map((appointment) =>
-        affectedAppointmentIds.has(appointment.MaLichHen)
-          ? { ...appointment, TrangThai: 'Đã hủy (Hệ thống hoàn tiền)' }
-          : appointment,
-      ),
-    )
+    try {
+      const response = await fetch(`${BACKEND_URL}/admin/doctor-schedules/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: schedule.id ?? null,
+          MaLichTruc: schedule.MaLichTruc,
+        }),
+      })
+      const result = await response.json()
 
-    setDoctorSchedules((current) =>
-      current.map((item) =>
-        item.MaLichTruc === schedule.MaLichTruc
-          ? { ...item, TrangThai: 'Đã hủy' }
-          : item,
-      ),
-    )
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể hủy ca trực.')
+      }
 
-    const notificationCount = pushScheduleNotifications(
-      affectedAppointments,
-      () =>
-        `⚠️ CẢNH BÁO SỰ CỐ: Ca khám ngày ${schedule.NgayTruc} - Ca ${schedule.CaTruc} của bạn đã bị hủy do bác sĩ gặp sự cố đột xuất. Vui lòng đặt lại lịch mới hoặc liên hệ hotline để được hỗ trợ xếp lịch lại!`,
-    )
+      setAppointments((current) =>
+        current.map((appointment) =>
+          affectedAppointmentIds.has(appointment.MaLichHen)
+            ? { ...appointment, TrangThai: 'Đã hủy' }
+            : appointment,
+        ),
+      )
 
-    addScheduleAdjustment?.({
-      type: 'cancel',
-      MaLichTruc: schedule.MaLichTruc,
-      MaBacSi: schedule.MaBacSi,
-      MaChiNhanh: schedule.MaChiNhanh,
-      NgayTruc: schedule.NgayTruc,
-      CaTruc: schedule.CaTruc,
-    })
+      setDoctorSchedules((current) =>
+        current.map((item) =>
+          isSameDoctorSchedule(item, schedule)
+            ? { ...item, TrangThai: 'Đã hủy', SoLichHenDangCo: 0 }
+            : item,
+        ),
+      )
 
-    notify(
-      notificationCount > 0
-        ? `Đã hủy ca trực và phát thông báo cảnh báo đến ${notificationCount} bệnh nhân bị ảnh hưởng!`
-        : `Đã hủy ca trực ${schedule.MaLichTruc}.`,
-    )
+      const affectedPatients = result.data?.affectedPatients || []
+      addPatientNotifications?.(affectedPatients)
+
+      addScheduleAdjustment?.({
+        type: 'cancel',
+        MaLichTruc: schedule.MaLichTruc,
+        MaBacSi: schedule.MaBacSi,
+        MaChiNhanh: schedule.MaChiNhanh,
+        NgayTruc: schedule.NgayTruc,
+        CaTruc: schedule.CaTruc,
+      })
+
+      notify(
+        affectedPatients.length > 0
+          ? `Đã hủy ca trực và phát thông báo cảnh báo đến ${affectedPatients.length} bệnh nhân bị ảnh hưởng!`
+          : `Đã hủy ca trực ${schedule.MaLichTruc}.`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể hủy ca trực.'
+      notify(message, 'error')
+    }
   }
 
   const getTransferDoctorOptions = (schedule) => {
@@ -2433,7 +2681,7 @@ function AdminDashboard({
     setDoctorTransferModal({ show: false, schedule: null, nextDoctorId: '' })
   }
 
-  const handleConfirmDoctorTransfer = () => {
+  const handleConfirmDoctorTransfer = async () => {
     const schedule = doctorTransferModal.schedule
     const nextDoctorId = doctorTransferModal.nextDoctorId
 
@@ -2446,39 +2694,63 @@ function AdminDashboard({
     const affectedAppointments = getAffectedAppointmentsForSchedule(schedule)
     const affectedAppointmentIds = new Set(affectedAppointments.map((appointment) => appointment.MaLichHen))
 
-    setDoctorSchedules((current) =>
-      current.map((item) =>
-        item.MaLichTruc === schedule.MaLichTruc ? { ...item, MaBacSi: nextDoctorId } : item,
-      ),
-    )
-    setAppointments((current) =>
-      current.map((appointment) =>
-        affectedAppointmentIds.has(appointment.MaLichHen)
-          ? { ...appointment, MaBacSi: nextDoctorId }
-          : appointment,
-      ),
-    )
+    try {
+      const response = await fetch(`${BACKEND_URL}/admin/doctor-schedules/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: schedule.id ?? null,
+          MaLichTruc: schedule.MaLichTruc,
+          newMaBacSi: nextDoctorId,
+        }),
+      })
+      const result = await response.json()
 
-    const notificationCount = pushScheduleNotifications(
-      affectedAppointments,
-      () =>
-        `📢 THÔNG BÁO THAY ĐỔI: Ca khám ngày ${schedule.NgayTruc} - Ca ${schedule.CaTruc} của bạn đã được điều chuyển sang Bác sĩ ${nextDoctor?.HoTen || nextDoctorId} phụ trách do thay đổi lịch công tác của viện. Giờ khám giữ nguyên không đổi!`,
-    )
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể điều chuyển bác sĩ trực.')
+      }
 
-    addScheduleAdjustment?.({
-      type: 'transfer',
-      MaLichTruc: schedule.MaLichTruc,
-      oldMaBacSi: schedule.MaBacSi,
-      newMaBacSi: nextDoctorId,
-      MaChiNhanh: schedule.MaChiNhanh,
-      NgayTruc: schedule.NgayTruc,
-      CaTruc: schedule.CaTruc,
-    })
+      setDoctorSchedules((current) =>
+        current.map((item) =>
+          isSameDoctorSchedule(item, schedule)
+            ? {
+                ...item,
+                ...normalizeAdminSchedule(result.data?.schedule || {}),
+                MaBacSi: nextDoctorId,
+                TenBacSi: nextDoctor?.HoTen || result.data?.schedule?.TenBacSi || nextDoctorId,
+              }
+            : item,
+        ),
+      )
+      setAppointments((current) =>
+        current.map((appointment) =>
+          affectedAppointmentIds.has(appointment.MaLichHen)
+            ? { ...appointment, MaBacSi: nextDoctorId }
+            : appointment,
+        ),
+      )
 
-    handleCloseDoctorTransfer()
-    notify(
-      `Đã điều chuyển bác sĩ trực và phát thông báo cảnh báo đến ${notificationCount} bệnh nhân bị ảnh hưởng!`,
-    )
+      const affectedPatients = result.data?.affectedPatients || []
+      addPatientNotifications?.(affectedPatients)
+
+      addScheduleAdjustment?.({
+        type: 'transfer',
+        MaLichTruc: schedule.MaLichTruc,
+        oldMaBacSi: schedule.MaBacSi,
+        newMaBacSi: nextDoctorId,
+        MaChiNhanh: schedule.MaChiNhanh,
+        NgayTruc: schedule.NgayTruc,
+        CaTruc: schedule.CaTruc,
+      })
+
+      handleCloseDoctorTransfer()
+      notify(
+        `Đã điều chuyển bác sĩ trực và phát thông báo cảnh báo đến ${affectedPatients.length} bệnh nhân bị ảnh hưởng!`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể điều chuyển bác sĩ trực.'
+      notify(message, 'error')
+    }
   }
 
   const renderStaffManagement = () => (
@@ -3169,6 +3441,8 @@ function AdminDashboard({
 
       <section className="admin-card">
         <h2>Danh sách lịch trực</h2>
+        {adminScheduleLoading && <p className="admin-muted-text">Đang tải lịch trực từ database...</p>}
+        {adminScheduleError && <p className="auth-catalog-error">{adminScheduleError}</p>}
         <div className="admin-filter-row">
           <label>
             Từ ngày
@@ -3222,7 +3496,7 @@ function AdminDashboard({
                 const appointmentCount = getAppointmentCountForSchedule(schedule)
                 const isCancelled = schedule.TrangThai === 'Đã hủy'
                 return (
-                  <tr key={schedule.MaLichTruc}>
+                  <tr key={schedule.id ? `schedule-${schedule.id}` : `${schedule.MaLichTruc}-${schedule.MaBacSi}-${schedule.MaChiNhanh}-${schedule.NgayTruc}-${schedule.CaTruc}`}>
                     <td>{getDoctorName(schedule.MaBacSi)}</td>
                     <td>{getBranchName(schedule.MaChiNhanh)}</td>
                     <td>{schedule.NgayTruc}</td>
@@ -3571,7 +3845,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
   const [historyDetail, setHistoryDetail] = useState(null)
   const [clinicalForm, setClinicalForm] = useState({
     TrieuChung: '',
-    MaBenh: 'K29',
+    MaBenh: '',
     LoiDan: '',
     MaThuoc: 'TH001',
     SoLuong: '10',
@@ -3580,7 +3854,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     MaDieuTri: 'DT_TRUYEN_DICH',
     TongSoBuoi: '3',
   })
-  const [diagnosisSearch, setDiagnosisSearch] = useState('K29 - Viêm dạ dày và tá tràng')
+  const [diagnosisSearch, setDiagnosisSearch] = useState('')
   const [medicineSearch, setMedicineSearch] = useState('Omeprazole 20mg')
   const [currentPrescription, setCurrentPrescription] = useState([])
   const [feedback, setFeedback] = useState('')
@@ -3978,7 +4252,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
         : maChiNhanh)
 
   const buildCurrentVisitId = (booking) =>
-    booking?.MaLuotKham || (booking ? `LK_${booking.MaLichHen.replace(/\D/g, '').padStart(3, '0')}` : '')
+    booking?.MaLuotKham || (booking ? `TEMP_VISIT_${booking.MaLichHen}` : '')
 
   const normalizeDoctorBooking = (booking) => ({
     MaLichHen: booking.MaLichHen,
@@ -3986,6 +4260,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     MaBenhAn: booking.MaBenhAn || '',
     MaDichVu: booking.MaDichVu || '',
     TenDichVu: booking.TenDichVu || '',
+    LoaiDichVu: booking.LoaiDichVu || '',
     MaChiNhanh: booking.MaChiNhanh || '',
     TenChiNhanh: booking.TenChiNhanh || '',
     MaBacSi: booking.MaBacSi || doctorProfile.MaBacSi,
@@ -4008,6 +4283,95 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
       KyTuDauBHYT: booking.KyTuDauBHYT || '',
     },
   })
+
+  const mergeDoctorHistoryRows = (rows) => {
+    const historyRows = Array.isArray(rows) ? rows : []
+
+    const nextVisits = historyRows.map((visit) => ({
+      MaLuotKham: visit.MaLuotKham,
+      MaBenhAn: visit.MaBenhAn,
+      NgayKham: visit.NgayKham || '',
+      MaBacSi: visit.MaBacSi || doctorProfile.MaBacSi,
+      TrieuChung: visit.TrieuChung || '',
+      MaBenh: visit.MaBenh || '',
+      LoiDan: visit.LoiDan || '',
+    }))
+
+    const nextPrescriptions = historyRows.flatMap((visit) =>
+      (visit.DonThuoc || []).map((item) => ({
+        MaDonThuoc: item.MaDonThuoc,
+        MaLuotKham: item.MaLuotKham || visit.MaLuotKham,
+        MaThuoc: item.MaThuoc,
+        SoLuong: item.SoLuong,
+        LieuDung: item.LieuDung,
+      })),
+    )
+
+    const nextLabs = historyRows.flatMap((visit) =>
+      (visit.XetNghiem || []).map((item) => ({
+        MaChiTietXN: item.MaChiTietXN,
+        MaLuotKham: item.MaLuotKham || visit.MaLuotKham,
+        MaDichVu: item.MaDichVu,
+        KetQuaXetNghiem: item.KetQuaXetNghiem || '',
+        MaXNV: item.MaXNV || '',
+        PaymentToken: item.PaymentToken || '',
+        GiaCuoi: item.GiaCuoi || 0,
+        TrangThaiXetNghiem: item.TrangThaiXetNghiem || 'Chưa thực hiện',
+      })),
+    )
+
+    const nextTreatments = historyRows.flatMap((visit) =>
+      groupTreatmentResponse(visit.DieuTri || [], visit.MaLuotKham),
+    )
+
+    const nextBookings = historyRows.map((visit) =>
+      normalizeDoctorBooking({
+        MaLichHen: visit.MaLichHen,
+        MaLuotKham: visit.MaLuotKham,
+        MaBenhAn: visit.MaBenhAn,
+        MaDichVu: visit.MaDichVuKham,
+        TenDichVu: visit.TenDichVuKham,
+        MaChiNhanh: visit.MaChiNhanh,
+        TenChiNhanh: visit.TenChiNhanh,
+        MaBacSi: visit.MaBacSi || doctorProfile.MaBacSi,
+        NgayKham: visit.NgayKham,
+        CaKham: visit.CaKham,
+        STT: visit.STT,
+        STT_HangDoi: visit.STT,
+        TrangThai: visit.TrangThai,
+        GiaCuoi: visit.GiaCuoi,
+        PaymentToken: visit.PaymentToken,
+        TenBenhNhan: visit.TenBenhNhan,
+        CCCD: visit.CCCD,
+        SDTBenhNhan: visit.SDTBenhNhan,
+        NgaySinh: visit.NgaySinh,
+        DiaChi: visit.DiaChi,
+      }),
+    )
+
+    setVisitRecords((current) => [
+      ...nextVisits,
+      ...current.filter((item) => !nextVisits.some((visit) => visit.MaLuotKham === item.MaLuotKham)),
+    ])
+    setPrescriptionDetails((current) => [
+      ...nextPrescriptions,
+      ...current.filter((item) => !nextPrescriptions.some((prescription) => prescription.MaDonThuoc === item.MaDonThuoc)),
+    ])
+    setLabDetails((current) => [
+      ...nextLabs,
+      ...current.filter((item) => !nextLabs.some((lab) => lab.MaChiTietXN === item.MaChiTietXN)),
+    ])
+    setTreatmentSchedules((current) => [
+      ...nextTreatments,
+      ...current.filter((item) => !nextTreatments.some((treatment) => treatment.MaLichTrinh === item.MaLichTrinh)),
+    ])
+    setBookings((current) => [
+      ...nextBookings,
+      ...current.filter((item) => !nextBookings.some((booking) => booking.MaLichHen === item.MaLichHen)),
+    ])
+
+    return { nextVisits, nextBookings }
+  }
 
   const loadDoctorQueue = async () => {
     if (!doctorProfile.MaBacSi) return
@@ -4036,6 +4400,47 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     }
   }
 
+  const loadDoctorCompletedEncounters = async () => {
+    if (!doctorProfile.MaBacSi) return
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/doctor/completed-encounters?ma_bac_si=${encodeURIComponent(doctorProfile.MaBacSi)}`,
+      )
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể tải lịch sử đợt khám của bác sĩ.')
+      }
+
+      mergeDoctorHistoryRows(result.data)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải lịch sử đợt khám của bác sĩ.'
+      console.warn('DOCTOR_COMPLETED_HISTORY_LOAD_FAILED', message)
+    }
+  }
+
+  const loadPatientHistoryForDoctor = async (maBenhAn) => {
+    if (!maBenhAn) return { nextVisits: [], nextBookings: [] }
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/doctor/patient-history?ma_benh_an=${encodeURIComponent(maBenhAn)}`,
+      )
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể tải lịch sử khám của bệnh nhân.')
+      }
+
+      return mergeDoctorHistoryRows(result.data)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải lịch sử khám của bệnh nhân.'
+      console.warn('DOCTOR_PATIENT_HISTORY_LOAD_FAILED', message)
+      return { nextVisits: [], nextBookings: [] }
+    }
+  }
+
   const updateDoctorBookingStatus = async (maLichHen, trangThai) => {
     const formData = new FormData()
     formData.append('ma_lich_hen', maLichHen)
@@ -4056,6 +4461,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 
   useEffect(() => {
     loadDoctorQueue()
+    loadDoctorCompletedEncounters()
   }, [doctorProfile.MaBacSi])
 
   const labServices = effectiveServices.filter((service) => service.LoaiDichVu === 'Xét nghiệm')
@@ -4135,6 +4541,9 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     doctorSourceBookings.find((booking) => booking.MaLichHen === activeBookingId) ||
     bookings.find((booking) => booking.MaLichHen === activeBookingId)
   const activePatient = activeBooking ? getPatient(activeBooking.MaBenhAn) : null
+  const activeBookingService = activeBooking ? getService(activeBooking.MaDichVu) : null
+  const activeBookingServiceType = activeBooking?.LoaiDichVu || activeBookingService?.LoaiDichVu || ''
+  const isActiveTreatmentBooking = activeBookingServiceType === 'Điều trị'
   const patientVisits = activePatient
     ? visitRecords
         .filter((visit) => visit.MaBenhAn === activePatient.MaBenhAn)
@@ -4158,6 +4567,19 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
   const currentTreatments = activeBooking
     ? treatmentSchedules.filter((item) => item.MaLuotKham === currentVisitId)
     : []
+  const activeTreatmentSession = activeBooking
+    ? treatmentSchedules.find((item) => item.MaLichHen === activeBooking.MaLichHen)
+    : null
+  const activeTreatmentSiblings = activeTreatmentSession
+    ? treatmentSchedules
+        .filter(
+          (item) =>
+            item.MaLuotKham === activeTreatmentSession.MaLuotKham &&
+            item.MaDichVu === activeTreatmentSession.MaDichVu,
+        )
+        .sort((first, second) => Number(first.BuoiSo || 0) - Number(second.BuoiSo || 0))
+    : []
+  const activeTreatmentCompletedCount = activeTreatmentSiblings.filter((item) => item.TrangThai === 'Hoàn thành').length
   const waitingConclusionBookings = doctorSourceBookings
     .filter((booking) => booking.TrangThai === 'Chờ kết luận' && isDoctorOwnedBooking(booking))
     .sort((a, b) => Number(a.STT_HangDoi || 0) - Number(b.STT_HangDoi || 0))
@@ -4171,12 +4593,12 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
         ['Hoàn thành', 'Đã khám'].includes(booking.TrangThai) &&
         booking.MaLuotKham,
     )
-    .map((booking) => {
-      const visit = visitRecords.find((item) => item.MaLuotKham === booking.MaLuotKham)
-      const patient = getPatient(booking.MaBenhAn)
-      const disease = visit ? getDisease(visit.MaBenh) : getDisease('')
-      return { booking, visit, patient, disease }
-    })
+	    .map((booking) => {
+	      const visit = visitRecords.find((item) => item.MaLuotKham === booking.MaLuotKham)
+	      const patient = booking.patient?.MaBenhAn ? booking.patient : getPatient(booking.MaBenhAn)
+	      const disease = visit ? getDisease(visit.MaBenh) : getDisease('')
+	      return { booking, visit, patient, disease }
+	    })
     .filter((row) => row.visit)
     .sort((a, b) => b.booking.NgayKham.localeCompare(a.booking.NgayKham))
 
@@ -4237,7 +4659,8 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
       const key = item.MaDichVu || item.MaLichTrinh
       const current = currentMap[key] || {
         MaLichTrinh: item.MaLichTrinh,
-        MaLuotKham: maLuotKham,
+        MaLichHen: item.MaLichHen || '',
+        MaLuotKham: item.MaLuotKham || maLuotKham,
         MaDichVu: item.MaDichVu,
         TenDichVu: item.TenDichVu,
         TongSoBuoi: 0,
@@ -4312,6 +4735,78 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     return maLuotKham
   }
 
+  const mergeEncounterDetail = (data) => {
+    const visit = data?.LuotKham
+    if (!visit?.MaLuotKham) return
+
+    setVisitRecords((current) => [
+      {
+        MaLuotKham: visit.MaLuotKham,
+        MaBenhAn: visit.MaBenhAn,
+        NgayKham: visit.NgayKham || '',
+        MaBacSi: visit.MaBacSi || doctorProfile.MaBacSi,
+        TrieuChung: visit.TrieuChung || '',
+        MaBenh: visit.MaBenh || '',
+        LoiDan: visit.LoiDan || '',
+      },
+      ...current.filter((item) => item.MaLuotKham !== visit.MaLuotKham),
+    ])
+
+    if (Array.isArray(data.DonThuoc)) {
+      setPrescriptionDetails((current) => [
+        ...current.filter((item) => item.MaLuotKham !== visit.MaLuotKham),
+        ...data.DonThuoc.map((item) => ({
+          MaDonThuoc: item.MaDonThuoc,
+          MaLuotKham: item.MaLuotKham || visit.MaLuotKham,
+          MaThuoc: item.MaThuoc,
+          SoLuong: item.SoLuong,
+          LieuDung: item.LieuDung,
+        })),
+      ])
+    }
+
+    if (Array.isArray(data.XetNghiem)) {
+      setLabDetails((current) => [
+        ...current.filter((item) => item.MaLuotKham !== visit.MaLuotKham),
+        ...data.XetNghiem.map((item) => ({
+          MaChiTietXN: item.MaChiTietXN,
+          MaLuotKham: item.MaLuotKham || visit.MaLuotKham,
+          MaDichVu: item.MaDichVu,
+          KetQuaXetNghiem: item.KetQuaXetNghiem || '',
+          MaXNV: item.MaXNV || '',
+          PaymentToken: item.PaymentToken || '',
+          GiaCuoi: item.GiaCuoi || 0,
+          TrangThaiXetNghiem: item.TrangThaiXetNghiem || 'Chưa thực hiện',
+        })),
+      ])
+    }
+
+    if (Array.isArray(data.DieuTri)) {
+      setTreatmentSchedules((current) => [
+        ...current.filter((item) => item.MaLuotKham !== visit.MaLuotKham),
+        ...groupTreatmentResponse(data.DieuTri, visit.MaLuotKham),
+      ])
+    }
+  }
+
+  const loadEncounterDetail = async (maLuotKham) => {
+    if (!maLuotKham) return null
+
+    const params = new URLSearchParams({
+      ma_luot_kham: maLuotKham,
+      ma_bac_si: doctorProfile.MaBacSi,
+    })
+    const response = await fetch(`${BACKEND_URL}/doctor/encounter-detail?${params.toString()}`)
+    const result = await response.json()
+
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.message || 'Không thể tải chi tiết lượt khám.')
+    }
+
+    mergeEncounterDetail(result.data)
+    return result.data
+  }
+
   const saveExamToBackend = async (isDraft) => {
     const response = await fetch(`${BACKEND_URL}/doctor/complete-appointment`, {
       method: 'POST',
@@ -4337,10 +4832,18 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 
       updateLocalDoctorBooking(booking.MaLichHen, { TrangThai: 'Đang khám' })
       setActiveBookingId(booking.MaLichHen)
-      const patientHistoricalVisits = visitRecords
+      const loadedHistory = await loadPatientHistoryForDoctor(booking.MaBenhAn)
+      if (booking.MaLuotKham) {
+        await loadEncounterDetail(booking.MaLuotKham)
+        setSelectedVisitId(booking.MaLuotKham)
+      }
+      const historySource = loadedHistory.nextVisits.length > 0 ? loadedHistory.nextVisits : visitRecords
+      const patientHistoricalVisits = historySource
         .filter((visit) => visit.MaBenhAn === booking.MaBenhAn)
         .sort((a, b) => b.NgayKham.localeCompare(a.NgayKham))
-      setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
+      if (!booking.MaLuotKham) {
+        setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
+      }
       notify(`Đã mời ${getPatient(booking.MaBenhAn).HoTen} vào khám.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể mời bệnh nhân vào khám.'
@@ -4357,6 +4860,11 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
   const handleSelectDisease = (disease) => {
     setClinicalForm((current) => ({ ...current, MaBenh: disease.MaBenh }))
     setDiagnosisSearch(`${disease.MaBenh} - ${disease.TenBenh}`)
+  }
+
+  const handleDiagnosisSearchChange = (value) => {
+    setDiagnosisSearch(value)
+    setClinicalForm((current) => ({ ...current, MaBenh: '' }))
   }
 
   const handleSelectMedicine = (medicine) => {
@@ -4487,11 +4995,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 
     try {
       const examData = await saveExamToBackend(true)
-      applyExamResponse(examData, 'Đang khám')
-
-      if (hasLoadedDoctorQueue && !String(activeBooking.MaLichHen).startsWith('LH_DR_')) {
-        await updateDoctorBookingStatus(activeBooking.MaLichHen, 'Chờ kết luận')
-      }
+      applyExamResponse(examData, examData?.TrangThai || 'Chờ kết luận')
 
       updateLocalDoctorBooking(activeBooking.MaLichHen, {
         MaLuotKham: examData?.MaLuotKham || activeBooking.MaLuotKham,
@@ -4517,10 +5021,18 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 
       updateLocalDoctorBooking(booking.MaLichHen, { TrangThai: 'Đang khám' })
       setActiveBookingId(booking.MaLichHen)
-      const patientHistoricalVisits = visitRecords
+      const loadedHistory = await loadPatientHistoryForDoctor(booking.MaBenhAn)
+      if (booking.MaLuotKham) {
+        await loadEncounterDetail(booking.MaLuotKham)
+        setSelectedVisitId(booking.MaLuotKham)
+      }
+      const historySource = loadedHistory.nextVisits.length > 0 ? loadedHistory.nextVisits : visitRecords
+      const patientHistoricalVisits = historySource
         .filter((visit) => visit.MaBenhAn === booking.MaBenhAn)
         .sort((a, b) => b.NgayKham.localeCompare(a.NgayKham))
-      setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
+      if (!booking.MaLuotKham) {
+        setSelectedVisitId(patientHistoricalVisits[0]?.MaLuotKham || '')
+      }
       notify(`Đã gọi lại ${getPatient(booking.MaBenhAn).HoTen} vào phòng để kết luận.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể gọi lại bệnh nhân.'
@@ -4542,6 +5054,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
     try {
       const examData = await saveExamToBackend(false)
       const maLuotKham = applyExamResponse(examData, 'Hoàn thành') || currentVisitId
+      await loadDoctorCompletedEncounters()
 
       setDoctorLiveRows((current) => current.filter((booking) => booking.MaLichHen !== activeBooking.MaLichHen))
       setActiveBookingId('')
@@ -4554,11 +5067,56 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
         TongSoBuoi: '3',
       }))
       setCurrentPrescription([])
-      setDiagnosisSearch('K29 - Viêm dạ dày và tá tràng')
+      setDiagnosisSearch('')
       setMedicineSearch('')
       notify(`Đã hoàn thành lượt khám ${maLuotKham} và lưu vào hệ thống.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể hoàn thành lượt khám.'
+      notify(message, 'error')
+    } finally {
+      setSavingExam(false)
+    }
+  }
+
+  const handleCompleteTreatmentSession = async () => {
+    if (!activeBooking || !activePatient) return
+
+    setSavingExam(true)
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/doctor/complete-treatment-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ma_lich_hen: activeBooking.MaLichHen,
+          ma_bac_si: doctorProfile.MaBacSi,
+        }),
+      })
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể hoàn thành buổi điều trị.')
+      }
+
+      const completedTreatment = result.data
+      updateLocalDoctorBooking(activeBooking.MaLichHen, { TrangThai: 'Hoàn thành' })
+      setTreatmentSchedules((current) =>
+        current.map((item) =>
+          item.MaLichHen === activeBooking.MaLichHen ||
+          item.MaLichTrinh === completedTreatment?.MaLichTrinh
+            ? {
+                ...item,
+                TrangThai: 'Hoàn thành',
+                MaLichHen: item.MaLichHen || activeBooking.MaLichHen,
+              }
+            : item,
+        ),
+      )
+      setDoctorLiveRows((current) => current.filter((booking) => booking.MaLichHen !== activeBooking.MaLichHen))
+      setActiveBookingId('')
+      notify(`Đã hoàn thành buổi điều trị ${completedTreatment?.MaLichTrinh || activeBooking.MaLichHen}.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể hoàn thành buổi điều trị.'
       notify(message, 'error')
     } finally {
       setSavingExam(false)
@@ -4768,8 +5326,63 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 
             <div className="doctor-record-main">
               <div className="doctor-command-panel">
-                <h3>Lệnh lâm sàng lượt khám hiện tại</h3>
-                <div className="doctor-workflow-stack">
+                <h3>{isActiveTreatmentBooking ? 'Thực hiện buổi điều trị' : 'Lệnh lâm sàng lượt khám hiện tại'}</h3>
+                {isActiveTreatmentBooking ? (
+                  <div className="doctor-treatment-session-panel">
+                    <div className="doctor-treatment-session-header">
+                      <div>
+                        <span>Dịch vụ điều trị</span>
+                        <h3>{activeBooking.TenDichVu || activeBookingService?.TenDichVu || 'Dịch vụ điều trị'}</h3>
+                        <p>
+                          {activeBooking.TenChiNhanh || getShortBranchName(activeBooking.MaChiNhanh)} · Ngày{' '}
+                          {activeBooking.NgayKham} · Ca {activeBooking.CaKham}
+                        </p>
+                      </div>
+                      <strong>
+                        Buổi {activeTreatmentSession?.BuoiSo || 'đang cập nhật'} /{' '}
+                        {activeTreatmentSiblings.length || '...'}
+                      </strong>
+                    </div>
+
+                    <div className="doctor-treatment-session-grid">
+                      <div>
+                        <span>Bệnh nhân</span>
+                        <strong>{activePatient.HoTen}</strong>
+                        <p>{activePatient.MaBenhAn}</p>
+                      </div>
+                      <div>
+                        <span>Mã buổi điều trị</span>
+                        <strong>{activeTreatmentSession?.MaLichTrinh || 'Đang liên kết'}</strong>
+                        <p>Liên kết lịch hẹn {activeBooking.MaLichHen}</p>
+                      </div>
+                      <div>
+                        <span>Tiến độ liệu trình</span>
+                        <strong>
+                          {activeTreatmentCompletedCount}/{activeTreatmentSiblings.length || 1} buổi hoàn thành
+                        </strong>
+                        <p>Buổi hiện tại sẽ được tính hoàn thành sau khi xác nhận.</p>
+                      </div>
+                      <div>
+                        <span>Trạng thái hiện tại</span>
+                        <strong>{activeTreatmentSession?.TrangThai || activeBooking.TrangThai}</strong>
+                        <p>Không yêu cầu chẩn đoán, kê thuốc hoặc chỉ định xét nghiệm cho buổi điều trị.</p>
+                      </div>
+                    </div>
+
+                    <div className="doctor-treatment-session-actions">
+                      <button
+                        type="button"
+                        className="doctor-finish-button"
+                        onClick={handleCompleteTreatmentSession}
+                        disabled={savingExam}
+                      >
+                        {savingExam ? 'Đang lưu...' : 'Hoàn thành buổi điều trị'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="doctor-workflow-stack">
                   <section className="doctor-workflow-section">
                     <h3>1. Chỉ định Xét nghiệm & Giám sát kết quả Realtime</h3>
                     <div className="doctor-inline-order">
@@ -4831,7 +5444,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                         Chẩn đoán
                         <input
                           value={diagnosisSearch}
-                          onChange={(event) => setDiagnosisSearch(event.target.value)}
+                          onChange={(event) => handleDiagnosisSearchChange(event.target.value)}
                           placeholder="Gõ mã ICD-10 hoặc tên bệnh, ví dụ: K, Viêm, Tăng..."
                         />
                         <div className="doctor-suggestion-list">
@@ -4846,9 +5459,6 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                               <span>{disease.TenBenh}</span>
                             </button>
                           ))}
-                          {filteredDiseaseSuggestions.length === 0 && (
-                            <p>Không tìm thấy mã bệnh phù hợp.</p>
-                          )}
                         </div>
                       </label>
                       <label>
@@ -4880,9 +5490,6 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                               </span>
                             </button>
                           ))}
-                          {filteredMedicineSuggestions.length === 0 && (
-                            <p>Không tìm thấy thuốc phù hợp.</p>
-                          )}
                         </div>
                       </label>
                       <label>
@@ -5004,6 +5611,8 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
                     {savingExam ? 'Đang lưu...' : 'Hoàn thành lượt khám'}
                   </button>
                 </div>
+                  </>
+                )}
               </div>
 
               <div className="doctor-history-grid">
@@ -5426,7 +6035,7 @@ function DoctorDashboard({ user, onLogout, showNotification, scheduleAdjustments
 }
 
 function ReceptionistDashboard({ user, onLogout, showNotification, catalogData = EMPTY_CATALOG_DATA }) {
-  const TODAY = '2026-06-05'
+  const TODAY = getTodayDateKey()
   const [activeQueueTab, setActiveQueueTab] = useState('prebooked')
   const [searchTerm, setSearchTerm] = useState('')
   const [feedback, setFeedback] = useState('')
@@ -5929,7 +6538,7 @@ function ReceptionistDashboard({ user, onLogout, showNotification, catalogData =
       }, {})
 
     return Object.values(doctorMap)
-  }, [catalogData?.doctorSchedules, maChiNhanh])
+  }, [catalogData?.doctorSchedules, maChiNhanh, TODAY])
 
   const normalizeReceptionBooking = (appointment) => ({
     MaLichHen: appointment.MaLichHen,
@@ -6025,11 +6634,11 @@ function ReceptionistDashboard({ user, onLogout, showNotification, catalogData =
 
   useEffect(() => {
     loadCheckinAppointments()
-  }, [maChiNhanh])
+  }, [maChiNhanh, TODAY])
 
   useEffect(() => {
     loadDoctorQueues()
-  }, [maChiNhanh, branchDoctorsToday])
+  }, [maChiNhanh, branchDoctorsToday, TODAY])
 
   useEffect(() => {
     const keyword = searchTerm.trim()
@@ -6046,7 +6655,7 @@ function ReceptionistDashboard({ user, onLogout, showNotification, catalogData =
       setSearchError('')
 
       try {
-        const params = new URLSearchParams({ keyword, ma_chi_nhanh: maChiNhanh })
+        const params = new URLSearchParams({ keyword, ma_chi_nhanh: maChiNhanh, ngay: TODAY })
         const response = await fetch(`${BACKEND_URL}/letan/search-checkin-appointment?${params.toString()}`)
         const result = await response.json()
 
@@ -6068,7 +6677,7 @@ function ReceptionistDashboard({ user, onLogout, showNotification, catalogData =
     }, 350)
 
     return () => window.clearTimeout(timeoutId)
-  }, [searchTerm, maChiNhanh])
+  }, [searchTerm, maChiNhanh, TODAY])
 
   const matchedPatient = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
@@ -6724,9 +7333,11 @@ function TechnicianDashboard({ user, onLogout, showNotification, onUpdateUser, c
     MatKhau: user?.MatKhau || '123456',
   })
 
-  const effectiveBranches = catalogData?.branches?.length ? catalogData.branches : branches
-  const effectiveServices = catalogData?.services?.length ? catalogData.services : services
-  const effectiveBhytCategories = catalogData?.bhyt?.length ? catalogData.bhyt : bhytCategories
+	  const effectiveBranches = catalogData?.branches?.length ? catalogData.branches : branches
+	  const effectiveServices = catalogData?.services?.length ? catalogData.services : services
+	  const effectiveDiseases = catalogData?.diseases?.length ? catalogData.diseases : diseases
+	  const effectiveMedicines = catalogData?.medicines?.length ? catalogData.medicines : medicines
+	  const effectiveBhytCategories = catalogData?.bhyt?.length ? catalogData.bhyt : bhytCategories
   const allKnownServices = effectiveServices.concat(
     services.filter((mockService) => !effectiveServices.some((service) => service.MaDichVu === mockService.MaDichVu)),
   )
@@ -7405,6 +8016,7 @@ function PatientDashboard({
   onUpdateUser,
   showNotification,
   notifications = [],
+  addPatientNotifications,
   onMarkNotificationsRead,
   catalogData = EMPTY_CATALOG_DATA,
 }) {
@@ -7843,6 +8455,8 @@ function PatientDashboard({
 
   const effectiveBranches = catalogData?.branches?.length ? catalogData.branches : branches
   const effectiveServices = catalogData?.services?.length ? catalogData.services : services
+  const effectiveDiseases = catalogData?.diseases?.length ? catalogData.diseases : diseases
+  const effectiveMedicines = catalogData?.medicines?.length ? catalogData.medicines : medicines
   const effectiveBhytCategories = catalogData?.bhyt?.length ? catalogData.bhyt : bhytCategories
   const normalizedCatalogSchedules = (catalogData?.doctorSchedules || []).map((schedule) => ({
     ...schedule,
@@ -7858,12 +8472,13 @@ function PatientDashboard({
   const derivedDoctors = Object.values(
     effectiveDoctorSchedules.reduce((doctorMap, schedule) => {
       if (!schedule.MaBacSi || doctorMap[schedule.MaBacSi]) return doctorMap
+      const mockDoctor = staffList.find((doctor) => doctor.MaBacSi === schedule.MaBacSi)
 
       doctorMap[schedule.MaBacSi] = {
         MaBacSi: schedule.MaBacSi,
         HoTen: schedule.TenBacSi || schedule.HoTen || schedule.MaBacSi,
-        ChuyenKhoa: schedule.ChuyenKhoa || '',
-        SDT: schedule.SDT || '',
+        ChuyenKhoa: schedule.ChuyenKhoa || mockDoctor?.ChuyenKhoa || '',
+        SDT: schedule.SDT || mockDoctor?.SDT || '',
       }
       return doctorMap
     }, {}),
@@ -7873,15 +8488,18 @@ function PatientDashboard({
         staffList.filter((mockDoctor) => !derivedDoctors.some((doctor) => doctor.MaBacSi === mockDoctor.MaBacSi)),
       )
     : staffList
-  const effectiveBranchServices = catalogData?.branches?.length && catalogData?.services?.length
-    ? effectiveBranches.flatMap((branch) =>
-        effectiveServices.map((service) => ({
-          MaCauHinh: `${branch.MaChiNhanh}_${service.MaDichVu}`,
-          MaChiNhanh: branch.MaChiNhanh,
-          MaDichVu: service.MaDichVu,
-          SlotGioiHan: 15,
-        })),
-      )
+  const effectiveBranchServices = catalogData?.branchServices?.length
+    ? catalogData.branchServices.map((config) => ({
+        MaCauHinh: config.MaCauHinh,
+        MaChiNhanh: config.MaChiNhanh,
+        MaDichVu: config.MaDichVu,
+        SlotGioiHan: Number(config.SlotGioiHan || 15),
+        TenChiNhanh: config.TenChiNhanh || '',
+        TenDichVu: config.TenDichVu || '',
+        ChuyenKhoa: config.ChuyenKhoa || '',
+        LoaiDichVu: config.LoaiDichVu || '',
+        GiaGoc: Number(config.GiaGoc || 0),
+      }))
     : branchServices
   const allKnownBranchServices = effectiveBranchServices.concat(
     branchServices.filter(
@@ -7945,6 +8563,33 @@ function PatientDashboard({
     }
   }
 
+  const loadPatientNotifications = async () => {
+    if (!patient.MaBenhAn) return
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/patient/notifications?ma_benh_an=${encodeURIComponent(patient.MaBenhAn)}`)
+      const result = await response.json()
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || 'Không thể tải thông báo bệnh nhân.')
+      }
+
+      addPatientNotifications?.(
+        (result.data || []).map((item) => ({
+          MaThongBao: item.MaThongBao,
+          MaBenhAn: patient.MaBenhAn,
+          MaLichHen: item.MaLichHen,
+          NoiDung: item.NoiDung,
+          ThoiGianGui: item.ThoiGianGui,
+          read: false,
+        })),
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải thông báo bệnh nhân.'
+      console.warn('PATIENT_NOTIFICATIONS_LOAD_FAILED', message)
+    }
+  }
+
   const normalizeMedicalHistory = (rows) => {
     const historyRows = Array.isArray(rows) ? rows : []
     const nextVisits = historyRows.map((visit) => ({
@@ -7979,11 +8624,12 @@ function PatientDashboard({
         TrangThaiXetNghiem: item.TrangThaiXetNghiem || 'Chưa thực hiện',
       })),
     )
-    const nextTreatments = historyRows.flatMap((visit) =>
-      (visit.DieuTri || []).map((item) => ({
-        MaLichTrinh: item.MaLichTrinh,
-        MaLuotKham: visit.MaLuotKham,
-        MaDichVu: item.MaDichVu,
+	    const nextTreatments = historyRows.flatMap((visit) =>
+	      (visit.DieuTri || []).map((item) => ({
+	        MaLichTrinh: item.MaLichTrinh,
+	        MaLichHen: item.MaLichHen || '',
+	        MaLuotKham: visit.MaLuotKham,
+	        MaDichVu: item.MaDichVu,
         TenDichVu: item.TenDichVu,
         BuoiSo: item.BuoiSo,
         NgayThucHien: item.NgayThucHien || '',
@@ -8003,6 +8649,7 @@ function PatientDashboard({
       CaKham: visit.CaKham || '',
       MaBacSi: visit.MaBacSi || '',
       TenBacSi: visit.TenBacSi || '',
+      SDTBacSi: visit.SDTBacSi || '',
       PaymentToken: '',
       GiaCuoi: 0,
       TrangThai: 'Hoàn thành',
@@ -8107,21 +8754,30 @@ function PatientDashboard({
 	      SDT: 'Chưa cập nhật',
 	    }
 
+  const getDoctorInfoFromBooking = (booking) => {
+    const catalogDoctor = getDoctorInfo(booking?.MaBacSi || '')
+    return {
+      ...catalogDoctor,
+      HoTen: booking?.TenBacSi || catalogDoctor.HoTen,
+      SDT: booking?.SDTBacSi || catalogDoctor.SDT,
+    }
+  }
+
 	  const formatDoctorFullInfo = (doctor) =>
 	    `Bác sĩ ${doctor.HoTen} - Khoa: ${doctor.ChuyenKhoa || 'Chưa cập nhật'} (SĐT: ${doctor.SDT || 'Chưa cập nhật'})`
 
-	  const getDiseaseInfo = (maBenh) =>
-	    diseases.find((disease) => disease.MaBenh === maBenh) || {
-	      MaBenh: maBenh,
-	      TenBenh: 'Chưa xác định',
-	    }
+  const getDiseaseInfo = (maBenh, tenBenh = '') =>
+    effectiveDiseases.find((disease) => disease.MaBenh === maBenh) || {
+      MaBenh: maBenh || 'Chưa xác định',
+      TenBenh: tenBenh || 'Chưa xác định',
+    }
 
-	  const getMedicineInfo = (maThuoc) =>
-	    medicines.find((medicine) => medicine.MaThuoc === maThuoc) || {
-	      MaThuoc: maThuoc,
-	      TenThuoc: maThuoc,
-	      DonViTinh: '',
-	    }
+  const getMedicineInfo = (maThuoc) =>
+    effectiveMedicines.find((medicine) => medicine.MaThuoc === maThuoc) || {
+      MaThuoc: maThuoc,
+      TenThuoc: maThuoc,
+      DonViTinh: '',
+    }
 
 	  const getLabTechnicianName = (maXNV) =>
 	    labTechnicians.find((technician) => technician.MaXNV === maXNV)?.HoTen || 'Chưa phân công'
@@ -8214,7 +8870,8 @@ function PatientDashboard({
 
   const getSlotLimit = (params) => {
     const { maChiNhanh, maDichVu } = normalizeScheduleParams(params)
-    return Number(getBranchConfig(maChiNhanh, maDichVu)?.SlotGioiHan || 15)
+    const config = getBranchConfig(maChiNhanh, maDichVu)
+    return config ? Number(config.SlotGioiHan || 15) : 0
   }
 
   const getRemainingSlots = (params) =>
@@ -8224,7 +8881,6 @@ function PatientDashboard({
 
   const getAvailableShifts = (params) => {
     const { maChiNhanh, maDichVu, ngayKham } = normalizeScheduleParams(params)
-    console.log('LOG_LỌC_CA:', { maChiNhanh, ngayKham, tổng_lịch_trực: allKnownDoctorSchedules.length })
 
     const result = [1, 2, 3, 4].filter((shift) => {
       const hasWorkingDoctor = allKnownDoctorSchedules.some(
@@ -8245,7 +8901,6 @@ function PatientDashboard({
       return hasWorkingDoctor && bookedCount < slotLimit
     })
 
-    console.log('LOG_KẾT_QUẢ_CA:', result)
     return result
   }
 
@@ -8349,7 +9004,7 @@ function PatientDashboard({
         maDichVu,
         ngayKham,
         caKham: shift,
-      }, { matchSpecialty: false }).length > 0,
+      }).length > 0,
     )
     const selectedShift = shiftWithDoctor || shifts[0]
     const doctorsForShift = selectedShift
@@ -8358,7 +9013,7 @@ function PatientDashboard({
           maDichVu,
           ngayKham,
           caKham: selectedShift,
-        }, { matchSpecialty: false })
+        })
       : []
 
     return {
@@ -8396,7 +9051,6 @@ function PatientDashboard({
                 ngayKham: next.NgayKham,
                 caKham: next.CaKham,
               },
-              { matchSpecialty: false },
             )
           : []
 
@@ -8425,6 +9079,7 @@ function PatientDashboard({
   useEffect(() => {
     loadPatientAppointments()
     loadMedicalHistory()
+    loadPatientNotifications()
   }, [patient.MaBenhAn])
 
   const bookingAvailableShifts = getAvailableShifts(bookingForm)
@@ -8433,7 +9088,7 @@ function PatientDashboard({
     maDichVu: bookingForm.MaDichVu,
     ngayKham: bookingForm.NgayKham,
     caKham: bookingForm.CaKham,
-  }, { matchSpecialty: false })
+  })
   const doctorBookingOptions = getDoctorBookingOptions(bookingForm)
   const patientBookingWeeks = buildBookingWeeks()
   const filteredBookings = bookings.filter((booking) => {
@@ -8482,7 +9137,7 @@ function PatientDashboard({
       maDichVu: bookingForm.MaDichVu,
       ngayKham: bookingForm.NgayKham,
       caKham: value,
-    }, { matchSpecialty: false })
+    })
     setBookingForm((current) => ({
       ...current,
       CaKham: value,
@@ -8623,7 +9278,7 @@ function PatientDashboard({
 	  const handleTreatmentDraftChange = (maLichTrinh, field, value) => {
     setTreatmentDrafts((current) => {
       const currentDraft = current[maLichTrinh] || {
-        MaChiNhanh: 'CN_CG',
+        MaChiNhanh: effectiveBranches[0]?.MaChiNhanh || '',
         NgayKham: '2026-06-05',
         CaKham: '',
         MaBacSi: '',
@@ -8650,7 +9305,7 @@ function PatientDashboard({
     const treatment = treatmentSchedules.find((item) => item.MaLichTrinh === maLichTrinh)
     const doctorsForShift = treatment
       ? getAvailableDoctorsForShift({
-          maChiNhanh: currentDraft?.MaChiNhanh || 'CN_CG',
+	        maChiNhanh: currentDraft?.MaChiNhanh || effectiveBranches[0]?.MaChiNhanh || '',
           maDichVu: treatment.MaDichVu,
           ngayKham: currentDraft?.NgayKham || '2026-06-05',
           caKham: value,
@@ -8679,7 +9334,7 @@ function PatientDashboard({
 
   const startTreatmentBooking = (treatment) => {
     const initialDraft = {
-      MaChiNhanh: 'CN_CG',
+      MaChiNhanh: effectiveBranches[0]?.MaChiNhanh || '',
       NgayKham: '2026-06-05',
       CaKham: '',
       MaBacSi: '',
@@ -8765,9 +9420,9 @@ function PatientDashboard({
   const confirmMockPayment = async () => {
     if (!paymentModal) return
 
-    if (paymentModal.type === 'new-booking') {
-      setIsConfirmingPayment(true)
-      try {
+	    if (paymentModal.type === 'new-booking') {
+	      setIsConfirmingPayment(true)
+	      try {
         const response = await fetch(`${BACKEND_URL}/patient/book-and-pay`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -8804,11 +9459,77 @@ function PatientDashboard({
         showNotification?.(message, 'error')
       } finally {
         setIsConfirmingPayment(false)
-      }
-      return
-    }
+	      }
+	      return
+	    }
 
-    const paymentToken = `PAY_MOCK_${Math.floor(100000 + Math.random() * 900000)}`
+	    if (paymentModal.type === 'treatment-booking') {
+	      setIsConfirmingPayment(true)
+	      try {
+	        const response = await fetch(`${BACKEND_URL}/patient/book-treatment`, {
+	          method: 'POST',
+	          headers: { 'Content-Type': 'application/json' },
+	          body: JSON.stringify({
+	            ma_lich_trinh: paymentModal.payload.MaLichTrinh,
+	            ma_benh_an: patient.MaBenhAn,
+	            ma_cau_hinh: paymentModal.payload.MaCauHinh,
+	            ngay_thuc_hien: paymentModal.invoice.ngayKham,
+	            ca_kham: Number(paymentModal.invoice.caKham),
+	            ma_bac_si: paymentModal.payload.MaBacSi,
+	          }),
+	        })
+	        const result = await response.json()
+
+	        if (!response.ok || !result?.success) {
+	          throw new Error(result?.message || 'Không thể đặt lịch điều trị.')
+	        }
+
+	        const appointment = result.data?.appointment
+	        const treatment = result.data?.treatment
+
+	        if (appointment) {
+	          setBookings((current) => {
+	            const nextBooking = normalizeAppointmentRow({
+	              ...appointment,
+	              MaDichVu: appointment.MaDichVu || paymentModal.invoice.maDichVu,
+	              MaChiNhanh: appointment.MaChiNhanh || paymentModal.invoice.maChiNhanh,
+	            })
+	            return [nextBooking, ...current.filter((booking) => booking.MaLichHen !== nextBooking.MaLichHen)]
+	          })
+	        }
+
+	        if (treatment) {
+	          setTreatmentSchedules((current) =>
+	            current.map((item) =>
+	              item.MaLichTrinh === treatment.MaLichTrinh
+	                ? {
+	                    ...item,
+	                    MaLichHen: treatment.MaLichHen || '',
+	                    NgayThucHien: treatment.NgayThucHien || paymentModal.invoice.ngayKham,
+	                    CaKham: treatment.CaKham || paymentModal.invoice.caKham,
+	                    MaBacSi: paymentModal.payload.MaBacSi,
+	                    TrangThai: treatment.TrangThai || 'Đã đặt lịch',
+	                  }
+	                : item,
+	            ),
+	          )
+	        }
+
+	        await loadPatientAppointments()
+	        await loadMedicalHistory()
+	        setActiveTreatmentId('')
+	        setPaymentModal(null)
+	        showNotification?.('Thanh toán thành công! Buổi điều trị đã được xác nhận.')
+	      } catch (error) {
+	        const message = error instanceof Error ? error.message : 'Không thể đặt lịch điều trị.'
+	        showNotification?.(message, 'error')
+	      } finally {
+	        setIsConfirmingPayment(false)
+	      }
+	      return
+	    }
+
+	    const paymentToken = `PAY_MOCK_${Math.floor(100000 + Math.random() * 900000)}`
     const newBooking = {
       MaLichHen: `LH_${String(bookings.length + 1).padStart(3, '0')}`,
       MaBenhAn: patient.MaBenhAn,
@@ -8819,7 +9540,7 @@ function PatientDashboard({
       CaKham: paymentModal.invoice.caKham,
       MaBacSi: paymentModal.payload.MaBacSi,
       PaymentToken: paymentToken,
-      TrangThai: paymentModal.type === 'new-booking' ? 'Chờ khám' : 'Đã xác nhận',
+      TrangThai: 'Đã xác nhận',
     }
 
     setBookings((current) => [...current, newBooking])
@@ -8914,15 +9635,17 @@ function PatientDashboard({
       maChiNhanh: bookingForm.MaChiNhanh,
       ngayKham: bookingForm.NgayKham,
       caKham: Number(bookingForm.CaKham || 0),
-    })
-    const selectedDoctor = bookingForm.MaBacSi ? getDoctorInfo(bookingForm.MaBacSi) : null
-    const canStartPayment = Boolean(
-      bookingForm.MaDichVu &&
-        bookingForm.MaChiNhanh &&
-        bookingForm.NgayKham &&
-        bookingForm.CaKham &&
-        bookingForm.MaBacSi,
-    )
+	    })
+	    const selectedDoctor = bookingForm.MaBacSi ? getDoctorInfo(bookingForm.MaBacSi) : null
+	    const selectedBranchConfig = getBranchConfig(bookingForm.MaChiNhanh, bookingForm.MaDichVu)
+	    const canStartPayment = Boolean(
+	      bookingForm.MaDichVu &&
+	        bookingForm.MaChiNhanh &&
+	        bookingForm.NgayKham &&
+	        bookingForm.CaKham &&
+	        bookingForm.MaBacSi &&
+	        selectedBranchConfig,
+	    )
 
     const renderDoctorBookingGrid = () => {
       if (!bookingForm.MaBacSi) {
@@ -9189,10 +9912,15 @@ function PatientDashboard({
               {selectedDoctor.HoTen}
             </span>
           )}
-          <span>Giá gốc: {formatMoney(invoice.giaGoc)}</span>
-          <span>BHYT giảm: {formatMoney(invoice.bhytAmount)}</span>
-          <span>Giá cuối: {formatMoney(invoice.finalAmount)}</span>
-        </div>
+	          <span>Giá gốc: {formatMoney(invoice.giaGoc)}</span>
+	          <span>BHYT giảm: {formatMoney(invoice.bhytAmount)}</span>
+	          <span>Giá cuối: {formatMoney(invoice.finalAmount)}</span>
+	          {!selectedBranchConfig && (
+	            <span className="auth-catalog-error">
+	              Dịch vụ này chưa được cấu hình tại chi nhánh đã chọn.
+	            </span>
+	          )}
+	        </div>
 
         <button
           type="button"
@@ -9260,12 +9988,12 @@ function PatientDashboard({
 	    </div>
   )
 
-  const renderTreatmentBookingControl = (treatment) => {
-    const draft = treatmentDrafts[treatment.MaLichTrinh] || {
-      MaChiNhanh: 'CN_CG',
-      NgayKham: '2026-06-05',
-      CaKham: '',
-      MaBacSi: '',
+	  const renderTreatmentBookingControl = (treatment) => {
+	    const draft = treatmentDrafts[treatment.MaLichTrinh] || {
+	      MaChiNhanh: effectiveBranches[0]?.MaChiNhanh || '',
+	      NgayKham: '2026-06-05',
+	      CaKham: '',
+	      MaBacSi: '',
     }
     const shifts = getAvailableShifts({
       maChiNhanh: draft.MaChiNhanh,
@@ -9305,10 +10033,10 @@ function PatientDashboard({
           value={draft.MaChiNhanh}
           onChange={(event) => handleTreatmentDraftChange(treatment.MaLichTrinh, 'MaChiNhanh', event.target.value)}
         >
-          {branches.map((branch) => (
-            <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
-              {branch.TenChiNhanh}
-            </option>
+	          {effectiveBranches.map((branch) => (
+	            <option key={branch.MaChiNhanh} value={branch.MaChiNhanh}>
+	              {branch.TenChiNhanh}
+	            </option>
           ))}
         </select>
         <input
@@ -9402,8 +10130,8 @@ function PatientDashboard({
       )
     }
 
-    const disease = getDiseaseInfo(selectedVisit.MaBenh)
-    const selectedDoctor = getDoctorInfo(selectedVisit.booking.MaBacSi)
+    const disease = getDiseaseInfo(selectedVisit.MaBenh, selectedVisit.TenBenh)
+    const selectedDoctor = getDoctorInfoFromBooking(selectedVisit.booking)
     const selectedPrescriptions = prescriptionDetails.filter((item) => item.MaLuotKham === selectedVisit.MaLuotKham)
     const selectedLabs = labDetails.filter((item) => item.MaLuotKham === selectedVisit.MaLuotKham)
     const selectedTreatments = treatmentSchedules.filter((item) => item.MaLuotKham === selectedVisit.MaLuotKham)
@@ -9432,8 +10160,8 @@ function PatientDashboard({
         <div className="health-record-layout">
           <aside className="health-timeline">
             {completedVisits.map((visit) => {
-              const visitDisease = getDiseaseInfo(visit.MaBenh)
-              const visitDoctor = getDoctorInfo(visit.booking.MaBacSi)
+              const visitDisease = getDiseaseInfo(visit.MaBenh, visit.TenBenh)
+              const visitDoctor = getDoctorInfoFromBooking(visit.booking)
               return (
                 <button
                   type="button"

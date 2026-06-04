@@ -10,6 +10,26 @@ async def _fetch_all(sql: str, params: tuple = ()):
         await conn.close()
 
 
+async def _table_has_column(table_name: str, column_name: str) -> bool:
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE
+                TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = %s
+                AND COLUMN_NAME = %s
+            """,
+            (table_name, column_name),
+        )
+        row = await cursor.fetchone()
+        return bool(row and row["total"])
+    finally:
+        await conn.close()
+
+
 async def get_branches():
     rows = await _fetch_all(
         """
@@ -48,6 +68,35 @@ async def get_services():
     return {
         "success": True,
         "message": "Lấy danh sách dịch vụ thành công.",
+        "data": rows,
+    }
+
+
+async def get_branch_services():
+    rows = await _fetch_all(
+        """
+        SELECT
+            CNDV.MaCauHinh,
+            CNDV.MaChiNhanh,
+            CN.TenChiNhanh,
+            CNDV.MaDichVu,
+            DV.TenDichVu,
+            DV.ChuyenKhoa,
+            DV.LoaiDichVu,
+            DV.GiaGoc,
+            CNDV.SlotGioiHan
+        FROM CHI_NHANH_DICH_VU CNDV
+        JOIN CHI_NHANH CN
+            ON CNDV.MaChiNhanh = CN.MaChiNhanh
+        JOIN DICH_VU DV
+            ON CNDV.MaDichVu = DV.MaDichVu
+        ORDER BY CNDV.MaChiNhanh, DV.LoaiDichVu, DV.ChuyenKhoa, CNDV.MaDichVu
+        """
+    )
+
+    return {
+        "success": True,
+        "message": "Lấy danh sách cấu hình dịch vụ chi nhánh thành công.",
         "data": rows,
     }
 
@@ -129,6 +178,13 @@ async def get_doctor_schedules(from_date: str = None, to_date: str = None):
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
+    has_schedule_status = await _table_has_column("LICH_TRUC", "TrangThai")
+    status_select = (
+        "COALESCE(LTR.TrangThai, 'Đang hoạt động') AS TrangThai"
+        if has_schedule_status
+        else "'Đang hoạt động' AS TrangThai"
+    )
+
     rows = await _fetch_all(
         f"""
         SELECT
@@ -137,10 +193,12 @@ async def get_doctor_schedules(from_date: str = None, to_date: str = None):
             LTR.MaBacSi,
             BS.HoTen AS TenBacSi,
             BS.ChuyenKhoa,
+            BS.SDT,
             LTR.MaChiNhanh,
             CN.TenChiNhanh,
             LTR.NgayTruc,
-            LTR.CaTruc
+            LTR.CaTruc,
+            {status_select}
         FROM LICH_TRUC LTR
         JOIN BAC_SI BS
             ON LTR.MaBacSi = BS.MaBacSi

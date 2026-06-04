@@ -221,6 +221,19 @@
   justify-content: center;
 }
 
+.auth-session-panel {
+  min-height: 260px;
+  gap: 8px;
+}
+
+.auth-session-text {
+  margin: 0;
+  color: #475569;
+  font-size: 0.98rem;
+  font-weight: 800;
+  text-align: center;
+}
+
 .brand-header {
   display: flex;
   align-items: center;
@@ -1626,6 +1639,79 @@
   align-items: center;
   gap: 8px;
   color: #1d4ed8;
+}
+
+.doctor-treatment-session-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #bae6fd;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
+}
+
+.doctor-treatment-session-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.doctor-treatment-session-header span,
+.doctor-treatment-session-grid span {
+  color: #0369a1;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.doctor-treatment-session-header h3 {
+  margin: 4px 0;
+  color: #0f172a;
+}
+
+.doctor-treatment-session-header p,
+.doctor-treatment-session-grid p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.doctor-treatment-session-header > strong {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.22);
+}
+
+.doctor-treatment-session-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.doctor-treatment-session-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid #e0f2fe;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.doctor-treatment-session-grid strong {
+  color: #0f172a;
+}
+
+.doctor-treatment-session-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .doctor-command-grid {
@@ -4137,6 +4223,7 @@
   .doctor-account-summary,
   .doctor-settings-form,
   .doctor-password-form,
+  .doctor-treatment-session-grid,
 	  .patient-form-grid,
 	  .patient-profile-grid,
 	  .patient-profile-form-grid,
@@ -4210,6 +4297,7 @@
   .doctor-account-summary,
   .doctor-settings-form,
   .doctor-password-form,
+  .doctor-treatment-session-grid,
 	  .patient-form-grid,
 	  .patient-profile-grid,
 	  .patient-profile-form-grid,

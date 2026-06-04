@@ -40,8 +40,9 @@ async def get_checkin_appointments_api(
 async def search_checkin_appointment_api(
     keyword: str = Query(...),
     ma_chi_nhanh: str = Query(...),
+    ngay: Optional[str] = Query(None),
 ):
-    return await search_checkin_appointment(keyword, ma_chi_nhanh)
+    return await search_checkin_appointment(keyword, ma_chi_nhanh, ngay)
 
 
 @router.get("/waiting-list/{ma_bac_si}/{ngay}", response_model=ResponseModel)

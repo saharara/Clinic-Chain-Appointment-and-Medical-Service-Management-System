@@ -2,6 +2,54 @@ import datetime
 import uuid
 from check_db import get_connection
 
+
+async def generate_next_visit_id(conn):
+    cursor = await conn.execute("""
+        SELECT MaLuotKham
+        FROM LUOT_KHAM
+        WHERE MaLuotKham REGEXP '^LK_[0-9]+$'
+        ORDER BY CAST(SUBSTRING(MaLuotKham, 4) AS UNSIGNED) DESC
+        LIMIT 1
+    """)
+    last_lk = await cursor.fetchone()
+
+    next_number = 1
+    if last_lk and last_lk.get("MaLuotKham"):
+        try:
+            next_number = int(last_lk["MaLuotKham"].split("_", 1)[1]) + 1
+        except (IndexError, TypeError, ValueError):
+            next_number = 1
+
+    for offset in range(1000):
+        candidate = f"LK_{next_number + offset:03d}"
+        exists_cursor = await conn.execute(
+            "SELECT MaLuotKham FROM LUOT_KHAM WHERE MaLuotKham = %s LIMIT 1",
+            (candidate,),
+        )
+        if not await exists_cursor.fetchone():
+            return candidate
+
+    return f"LK_{uuid.uuid4().hex[:8].upper()}"
+
+
+async def normalize_disease_id(conn, ma_benh):
+    if ma_benh in ["string", "", " ", None]:
+        return None
+
+    disease_id = str(ma_benh).strip()
+    cursor = await conn.execute(
+        "SELECT MaBenh FROM BENH WHERE MaBenh = %s LIMIT 1",
+        (disease_id,),
+    )
+    if await cursor.fetchone():
+        return disease_id
+
+    raise ValueError(
+        f"Mã bệnh '{disease_id}' không tồn tại trong danh mục BENH. "
+        "Vui lòng chọn chẩn đoán từ danh sách gợi ý."
+    )
+
+
 async def get_patients_by_date(ma_bac_si: str, ngay_kham: str):
     conn = await get_connection()
     try:
@@ -48,6 +96,7 @@ async def get_doctor_queue(ma_bac_si: str):
                 LH.PaymentToken,
                 LH.MaBacSi,
                 LH.MaLeTan,
+                LK.MaLuotKham,
                 BN.MaBenhAn,
                 BN.HoTen AS TenBenhNhan,
                 BN.GioiTinh,
@@ -58,6 +107,7 @@ async def get_doctor_queue(ma_bac_si: str):
                 DV.MaDichVu,
                 DV.TenDichVu,
                 DV.ChuyenKhoa,
+                DV.LoaiDichVu,
                 CN.MaChiNhanh,
                 CN.TenChiNhanh
             FROM LICH_HEN LH
@@ -69,6 +119,8 @@ async def get_doctor_queue(ma_bac_si: str):
                 ON CNDV.MaDichVu = DV.MaDichVu
             JOIN CHI_NHANH CN
                 ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            LEFT JOIN LUOT_KHAM LK
+                ON LH.MaLichHen = LK.MaLichHen
             WHERE
                 LH.MaBacSi = %s
                 AND LH.TrangThai IN ('Chờ khám', 'Chờ kết luận', 'Đang khám')
@@ -85,6 +137,94 @@ async def get_doctor_queue(ma_bac_si: str):
             "message": "Lấy hàng đợi bác sĩ thành công.",
             "data": [dict(row) for row in rows],
         }
+    finally:
+        await conn.close()
+
+
+async def complete_treatment_session(ma_lich_hen: str, ma_bac_si: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                LH.MaLichHen,
+                LH.MaBacSi,
+                LH.TrangThai,
+                LH.MaBenhAn,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.GiaCuoi,
+                LH.PaymentToken,
+                CNDV.MaChiNhanh,
+                CN.TenChiNhanh,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                DV.LoaiDichVu,
+                LTDT.MaLichTrinh,
+                LTDT.MaLuotKham,
+                LTDT.BuoiSo,
+                LTDT.TrangThai AS TrangThaiDieuTri
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN LICH_TRINH_DIEU_TRI LTDT
+                ON LH.MaLichHen = LTDT.MaLichHen
+            WHERE
+                LH.MaLichHen = %s
+                AND LH.MaBacSi = %s
+            LIMIT 1
+        """, (ma_lich_hen, ma_bac_si))
+        row = await cursor.fetchone()
+
+        if not row:
+            return {
+                "success": False,
+                "message": "Không tìm thấy lịch hẹn điều trị thuộc bác sĩ hiện tại.",
+                "data": None,
+            }
+
+        if row["LoaiDichVu"] != "Điều trị":
+            return {
+                "success": False,
+                "message": "Lịch hẹn này không phải dịch vụ điều trị.",
+                "data": None,
+            }
+
+        if not row.get("MaLichTrinh"):
+            return {
+                "success": False,
+                "message": "Không tìm thấy buổi điều trị liên kết với lịch hẹn này.",
+                "data": None,
+            }
+
+        await conn.execute("""
+            UPDATE LICH_HEN
+            SET TrangThai = 'Hoàn thành'
+            WHERE MaLichHen = %s
+        """, (ma_lich_hen,))
+
+        await conn.execute("""
+            UPDATE LICH_TRINH_DIEU_TRI
+            SET TrangThai = 'Hoàn thành'
+            WHERE MaLichHen = %s
+        """, (ma_lich_hen,))
+
+        await conn.commit()
+
+        row["TrangThai"] = "Hoàn thành"
+        row["TrangThaiDieuTri"] = "Hoàn thành"
+        return {
+            "success": True,
+            "message": "Đã hoàn thành buổi điều trị.",
+            "data": dict(row),
+        }
+    except Exception as exc:
+        await conn.rollback()
+        return {"success": False, "message": str(exc), "data": None}
     finally:
         await conn.close()
 
@@ -153,8 +293,7 @@ async def save_examination_record(exam_data: dict):
             doctor_row = await doctor_cursor.fetchone()
             ma_bac_si = doctor_row["MaBacSi"] if doctor_row else None
 
-        if ma_benh in ["string", "", " "] or not ma_benh:
-            ma_benh = None
+        ma_benh = await normalize_disease_id(conn, ma_benh)
 
         xet_nghiem_hop_le = []
         for xn in (exam_data.get('xet_nghiem') or []):
@@ -195,21 +334,7 @@ async def save_examination_record(exam_data: dict):
             await conn.execute("DELETE FROM CHI_TIET_DON_THUOC WHERE MaLuotKham = %s", (ma_luot_kham,))
             await conn.execute("DELETE FROM LICH_TRINH_DIEU_TRI WHERE MaLuotKham = %s", (ma_luot_kham,))
         else:
-
-            cursor_max = await conn.execute("""
-                SELECT MaLuotKham FROM LUOT_KHAM 
-                ORDER BY CAST(SUBSTRING(MaLuotKham, 4) AS UNSIGNED) DESC LIMIT 1
-            """)
-            last_lk = await cursor_max.fetchone()
-            
-            if last_lk and "_" in last_lk["MaLuotKham"]:
-                try:
-                    last_num = int(last_lk["MaLuotKham"].split("_")[1])
-                    ma_luot_kham = f"LK_{last_num + 1:03d}" 
-                except ValueError:
-                    ma_luot_kham = f"LK_{uuid.uuid4().hex[:6].upper()}"
-            else:
-                ma_luot_kham = "LK_001"
+            ma_luot_kham = await generate_next_visit_id(conn)
                 
             await conn.execute("""
                 INSERT INTO LUOT_KHAM (MaLuotKham, MaLichHen, MaBacSi, TrieuChung, LoiDan, MaBenh)
@@ -268,10 +393,18 @@ async def save_examination_record(exam_data: dict):
                     VALUES (%s, %s, %s, %s, 'Chưa đặt lịch')
                 """, (ma_lt, ma_luot_kham, dt['ma_dich_vu'], buoi))
 
-        if not is_draft:
-            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'Hoàn thành' WHERE MaLichHen = %s", (ma_lich_hen,))
-        else:
-            await conn.execute("UPDATE LICH_HEN SET TrangThai = 'Đang khám' WHERE MaLichHen = %s", (ma_lich_hen,))
+        next_status = "Hoàn thành"
+        if is_draft:
+            next_status = "Chờ kết luận" if xet_nghiem_hop_le else "Đang khám"
+
+        await conn.execute("UPDATE LICH_HEN SET TrangThai = %s WHERE MaLichHen = %s", (next_status, ma_lich_hen))
+
+        if next_status == "Hoàn thành":
+            await conn.execute("""
+                UPDATE LICH_TRINH_DIEU_TRI
+                SET TrangThai = 'Hoàn thành'
+                WHERE MaLichHen = %s
+            """, (ma_lich_hen,))
             
         await conn.commit()
         response_data = {
@@ -280,13 +413,24 @@ async def save_examination_record(exam_data: dict):
             "TrieuChung": exam_data.get('trieu_chung') or "",
             "LoiDan": exam_data.get('loi_dan') or "",
             "MaBenh": ma_benh or "",
-            "TrangThai": "Đang khám" if is_draft else "Hoàn thành"
+            "TrangThai": next_status
         }
 
         if xet_nghiem_hop_le:
             cur_xn = await conn.execute("""
-                SELECT CTXN.MaChiTietXN, DV.MaDichVu, DV.TenDichVu, CTXN.TrangThaiXetNghiem
-                FROM CHI_TIET_XET_NGHIEM CTXN JOIN DICH_VU DV ON CTXN.MaDichVu = DV.MaDichVu WHERE CTXN.MaLuotKham = %s
+                SELECT
+                    CTXN.MaChiTietXN,
+                    DV.MaDichVu,
+                    DV.TenDichVu,
+                    CTXN.KetQuaXetNghiem,
+                    CTXN.MaXNV,
+                    CTXN.PaymentToken,
+                    CTXN.GiaCuoi,
+                    CTXN.TrangThaiXetNghiem
+                FROM CHI_TIET_XET_NGHIEM CTXN
+                JOIN DICH_VU DV
+                    ON CTXN.MaDichVu = DV.MaDichVu
+                WHERE CTXN.MaLuotKham = %s
             """, (ma_luot_kham,))
             response_data["XetNghiem"] = [dict(x) for x in await cur_xn.fetchall()]
         else:
@@ -301,19 +445,317 @@ async def save_examination_record(exam_data: dict):
         else:
             response_data["DonThuoc"] = []
 
-        if dieu_tri_hop_le:
-            cur_dt = await conn.execute("""
-                SELECT LTDT.MaLichTrinh, DV.MaDichVu, DV.TenDichVu, LTDT.BuoiSo, LTDT.TrangThai
-                FROM LICH_TRINH_DIEU_TRI LTDT JOIN DICH_VU DV ON LTDT.MaDichVu = DV.MaDichVu WHERE LTDT.MaLuotKham = %s
-            """, (ma_luot_kham,))
-            response_data["DieuTri"] = [dict(d) for d in await cur_dt.fetchall()]
-        else:
-            response_data["DieuTri"] = []
+        cur_dt = await conn.execute("""
+            SELECT
+                LTDT.MaLichTrinh,
+                LTDT.MaLichHen,
+                LTDT.MaLuotKham,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                LTDT.BuoiSo,
+                LTDT.NgayThucHien,
+                LTDT.CaKham,
+                LTDT.TrangThai
+            FROM LICH_TRINH_DIEU_TRI LTDT
+            JOIN DICH_VU DV
+                ON LTDT.MaDichVu = DV.MaDichVu
+            WHERE
+                LTDT.MaLuotKham = %s
+                OR LTDT.MaLichHen = %s
+            ORDER BY DV.MaDichVu, LTDT.BuoiSo
+        """, (ma_luot_kham, ma_lich_hen))
+        response_data["DieuTri"] = [dict(d) for d in await cur_dt.fetchall()]
 
         return {"success": True, "message": "Lưu thông tin khám thành công.", "data": response_data}
+    except ValueError as e:
+        await conn.rollback()
+        return {"success": False, "message": str(e), "data": None}
     except Exception as e:
         await conn.rollback()
         return {"success": False, "message": str(e), "data": None}
+    finally:
+        await conn.close()
+
+
+async def get_encounter_detail(ma_luot_kham: str, ma_bac_si: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                LK.MaLuotKham,
+                LK.MaLichHen,
+                LK.MaBacSi,
+                LK.TrieuChung,
+                LK.LoiDan,
+                LK.MaBenh,
+                LH.MaBenhAn,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.TrangThai,
+                B.TenBenh
+            FROM LUOT_KHAM LK
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            LEFT JOIN BENH B
+                ON LK.MaBenh = B.MaBenh
+            WHERE
+                LK.MaLuotKham = %s
+                AND LK.MaBacSi = %s
+            LIMIT 1
+        """, (ma_luot_kham, ma_bac_si))
+        visit = await cursor.fetchone()
+
+        if not visit:
+            return {
+                "success": False,
+                "message": "Không tìm thấy lượt khám thuộc bác sĩ hiện tại.",
+                "data": None,
+            }
+
+        prescription_cursor = await conn.execute("""
+            SELECT
+                CTDT.MaDonThuoc,
+                CTDT.MaLuotKham,
+                T.MaThuoc,
+                T.TenThuoc,
+                T.DonViTinh,
+                CTDT.SoLuong,
+                CTDT.LieuDung
+            FROM CHI_TIET_DON_THUOC CTDT
+            JOIN THUOC T
+                ON CTDT.MaThuoc = T.MaThuoc
+            WHERE CTDT.MaLuotKham = %s
+            ORDER BY CTDT.MaDonThuoc
+        """, (ma_luot_kham,))
+
+        lab_cursor = await conn.execute("""
+            SELECT
+                CTXN.MaChiTietXN,
+                CTXN.MaLuotKham,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                CTXN.KetQuaXetNghiem,
+                CTXN.MaXNV,
+                CTXN.PaymentToken,
+                CTXN.GiaCuoi,
+                CTXN.TrangThaiXetNghiem
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN DICH_VU DV
+                ON CTXN.MaDichVu = DV.MaDichVu
+            WHERE CTXN.MaLuotKham = %s
+            ORDER BY CTXN.MaChiTietXN
+        """, (ma_luot_kham,))
+
+        treatment_cursor = await conn.execute("""
+            SELECT
+                LTDT.MaLichTrinh,
+                LTDT.MaLichHen,
+                LTDT.MaLuotKham,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                LTDT.BuoiSo,
+                LTDT.NgayThucHien,
+                LTDT.CaKham,
+                LTDT.TrangThai
+            FROM LICH_TRINH_DIEU_TRI LTDT
+            JOIN DICH_VU DV
+                ON LTDT.MaDichVu = DV.MaDichVu
+            WHERE LTDT.MaLuotKham = %s
+            ORDER BY DV.MaDichVu, LTDT.BuoiSo
+        """, (ma_luot_kham,))
+
+        return {
+            "success": True,
+            "message": "Lấy chi tiết lượt khám thành công.",
+            "data": {
+                "LuotKham": dict(visit),
+                "DonThuoc": [dict(row) for row in await prescription_cursor.fetchall()],
+                "XetNghiem": [dict(row) for row in await lab_cursor.fetchall()],
+                "DieuTri": [dict(row) for row in await treatment_cursor.fetchall()],
+            },
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
+
+
+async def attach_encounter_children(conn, encounters):
+    for encounter in encounters:
+        ma_luot_kham = encounter["MaLuotKham"]
+
+        prescription_cursor = await conn.execute("""
+            SELECT
+                CTDT.MaDonThuoc,
+                CTDT.MaLuotKham,
+                T.MaThuoc,
+                T.TenThuoc,
+                T.DonViTinh,
+                CTDT.SoLuong,
+                CTDT.LieuDung
+            FROM CHI_TIET_DON_THUOC CTDT
+            JOIN THUOC T
+                ON CTDT.MaThuoc = T.MaThuoc
+            WHERE CTDT.MaLuotKham = %s
+            ORDER BY CTDT.MaDonThuoc
+        """, (ma_luot_kham,))
+        encounter["DonThuoc"] = [dict(row) for row in await prescription_cursor.fetchall()]
+
+        lab_cursor = await conn.execute("""
+            SELECT
+                CTXN.MaChiTietXN,
+                CTXN.MaLuotKham,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                CTXN.KetQuaXetNghiem,
+                CTXN.MaXNV,
+                CTXN.PaymentToken,
+                CTXN.GiaCuoi,
+                CTXN.TrangThaiXetNghiem
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN DICH_VU DV
+                ON CTXN.MaDichVu = DV.MaDichVu
+            WHERE CTXN.MaLuotKham = %s
+            ORDER BY CTXN.MaChiTietXN
+        """, (ma_luot_kham,))
+        encounter["XetNghiem"] = [dict(row) for row in await lab_cursor.fetchall()]
+
+        treatment_cursor = await conn.execute("""
+            SELECT
+                LTDT.MaLichTrinh,
+                LTDT.MaLichHen,
+                LTDT.MaLuotKham,
+                DV.MaDichVu,
+                DV.TenDichVu,
+                LTDT.BuoiSo,
+                LTDT.NgayThucHien,
+                LTDT.CaKham,
+                LTDT.TrangThai
+            FROM LICH_TRINH_DIEU_TRI LTDT
+            JOIN DICH_VU DV
+                ON LTDT.MaDichVu = DV.MaDichVu
+            WHERE LTDT.MaLuotKham = %s
+            ORDER BY DV.MaDichVu, LTDT.BuoiSo
+        """, (ma_luot_kham,))
+        encounter["DieuTri"] = [dict(row) for row in await treatment_cursor.fetchall()]
+
+    return encounters
+
+
+async def get_doctor_completed_encounters(ma_bac_si: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                LK.MaLuotKham,
+                LK.MaLichHen,
+                LK.MaBacSi,
+                LK.TrieuChung,
+                LK.LoiDan,
+                LK.MaBenh,
+                B.TenBenh,
+                LH.MaBenhAn,
+                BN.HoTen AS TenBenhNhan,
+                BN.CCCD,
+                BN.NgaySinh,
+                BN.SDT AS SDTBenhNhan,
+                BN.DiaChi,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.TrangThai,
+                LH.GiaCuoi,
+                LH.PaymentToken,
+                CNDV.MaChiNhanh,
+                CN.TenChiNhanh,
+                DV.MaDichVu AS MaDichVuKham,
+                DV.TenDichVu AS TenDichVuKham
+            FROM LUOT_KHAM LK
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BENH B
+                ON LK.MaBenh = B.MaBenh
+            WHERE
+                LK.MaBacSi = %s
+                AND LH.TrangThai = 'Hoàn thành'
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC
+        """, (ma_bac_si,))
+        rows = [dict(row) for row in await cursor.fetchall()]
+        rows = await attach_encounter_children(conn, rows)
+
+        return {
+            "success": True,
+            "message": f"Lấy {len(rows)} lượt khám đã hoàn thành.",
+            "data": rows,
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
+
+
+async def get_patient_history_for_doctor(ma_benh_an: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                LK.MaLuotKham,
+                LK.MaLichHen,
+                LK.MaBacSi,
+                LK.TrieuChung,
+                LK.LoiDan,
+                LK.MaBenh,
+                B.TenBenh,
+                LH.MaBenhAn,
+                BN.HoTen AS TenBenhNhan,
+                BN.CCCD,
+                BN.NgaySinh,
+                BN.SDT AS SDTBenhNhan,
+                BN.DiaChi,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.TrangThai,
+                LH.GiaCuoi,
+                LH.PaymentToken,
+                CNDV.MaChiNhanh,
+                CN.TenChiNhanh,
+                DV.MaDichVu AS MaDichVuKham,
+                DV.TenDichVu AS TenDichVuKham
+            FROM LUOT_KHAM LK
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BENH B
+                ON LK.MaBenh = B.MaBenh
+            WHERE LH.MaBenhAn = %s
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC
+        """, (ma_benh_an,))
+        rows = [dict(row) for row in await cursor.fetchall()]
+        rows = await attach_encounter_children(conn, rows)
+
+        return {
+            "success": True,
+            "message": f"Lấy {len(rows)} lượt khám của bệnh nhân.",
+            "data": rows,
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
     finally:
         await conn.close()
 

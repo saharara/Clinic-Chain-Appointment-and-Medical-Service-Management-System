@@ -10,6 +10,7 @@ from service.auth_service import (
     create_xnv_account,
     delete_doctor_account,
     delete_xnv_account,
+    get_session_user,
     login_admin,
     login_doctor,
     login_le_tan,
@@ -25,6 +26,11 @@ class ResponseModel(BaseModel):
     success: bool
     message: str
     data: Optional[Any] = None
+
+
+class SessionUserRequest(BaseModel):
+    role: str
+    userId: str
 
 
 async def read_request_data(request: Request) -> dict:
@@ -78,6 +84,11 @@ async def login_xet_nghiem_vien_api(request: Request):
 async def login_admin_api(request: Request):
     data = await read_request_data(request)
     return await login_admin(data.get("username"), data.get("password"))
+
+
+@router.post("/session-user", response_model=ResponseModel)
+async def get_session_user_api(request: SessionUserRequest):
+    return await get_session_user(request.role, request.userId)
 
 
 @router.post("/create-doctor-account", response_model=ResponseModel)
