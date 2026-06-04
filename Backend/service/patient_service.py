@@ -136,7 +136,11 @@ async def book_and_pay(
         
         # 2. Lấy giá gốc dịch vụ
         cursor = await conn.execute("""
-            SELECT DV.GiaGoc 
+            SELECT
+                DV.MaDichVu,
+                DV.TenDichVu,
+                DV.GiaGoc,
+                CNDV.MaChiNhanh
             FROM CHI_NHANH_DICH_VU CNDV
             JOIN DICH_VU DV ON CNDV.MaDichVu = DV.MaDichVu
             WHERE CNDV.MaCauHinh = %s
@@ -196,6 +200,15 @@ async def book_and_pay(
             "message": "Đặt lịch và thanh toán thành công",
             "data": {
                 "MaLichHen": ma_lich_hen,
+                "MaBenhAn": ma_benh_an,
+                "MaCauHinh": ma_cau_hinh,
+                "MaDichVu": dv_info["MaDichVu"],
+                "MaChiNhanh": dv_info["MaChiNhanh"],
+                "NgayKham": ngay_kham,
+                "CaKham": ca_kham,
+                "STT": stt,
+                "GiaCuoi": gia_cuoi,
+                "TrangThai": "Chờ khám",
                 "MaBacSi": ma_bac_si,
                 "PaymentToken": payment_token,
             },
@@ -208,6 +221,53 @@ async def book_and_pay(
     finally:
         if conn:
             await conn.close()
+
+
+async def get_patient_appointments(ma_benh_an: str):
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT
+                LH.MaLichHen,
+                LH.MaBenhAn,
+                LH.MaCauHinh,
+                CNDV.MaDichVu,
+                DV.TenDichVu,
+                CNDV.MaChiNhanh,
+                CN.TenChiNhanh,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.PaymentToken,
+                LH.GiaCuoi,
+                LH.TrangThai,
+                LH.MaBacSi,
+                BS.HoTen AS TenBacSi
+            FROM LICH_HEN LH
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            LEFT JOIN BAC_SI BS
+                ON LH.MaBacSi = BS.MaBacSi
+            WHERE LH.MaBenhAn = %s
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC, LH.STT DESC
+            """,
+            (ma_benh_an,),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        return {
+            "success": True,
+            "message": "Lấy danh sách lịch hẹn thành công.",
+            "data": rows,
+        }
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
 
 async def book_treatment(ma_lich_trinh: str, ma_benh_an: str, ngay: str, ca: int):
     conn = await get_connection()
@@ -261,46 +321,99 @@ async def request_refund(ma_lich_hen: str, ma_benh_an: str, bank_info: str):
 
 async def get_medical_history(ma_benh_an: str):
     conn = await get_connection()
-    # 1. Lấy danh sách lượt khám tổng quát
-    cursor = await conn.execute("""
-        SELECT LK.MaLuotKham, LH.NgayKham, B.TenBenh, LK.TrieuChung, LK.LoiDan
-        FROM LUOT_KHAM LK
-        JOIN LICH_HEN LH ON LK.MaLichHen = LH.MaLichHen
-        LEFT JOIN BENH B ON LK.MaBenh = B.MaBenh
-        WHERE LH.MaBenhAn = %s
-        ORDER BY LH.NgayKham DESC
-    """, (ma_benh_an,))
-    
-    luot_kham_list = [dict(row) for row in await cursor.fetchall()]
-    
-    if not luot_kham_list:
-        await conn.close()
-        return {"success": False, "message": "Chưa có lịch sử khám.", "data": None} # Ext 3a
-        
-    # 2. Map chi tiết (Thuốc, XN) vào từng lượt khám
-    for lk in luot_kham_list:
-        ma_lk = lk['MaLuotKham']
-        
-        # Kéo Đơn Thuốc (Ext 11a)
-        cur_thuoc = await conn.execute("""
-            SELECT T.TenThuoc, CTDT.SoLuong, CTDT.LieuDung 
-            FROM CHI_TIET_DON_THUOC CTDT
-            JOIN THUOC T ON CTDT.MaThuoc = T.MaThuoc
-            WHERE CTDT.MaLuotKham = %s
-        """, (ma_lk,))
-        lk['DonThuoc'] = [dict(t) for t in await cur_thuoc.fetchall()]
-        
-        # Kéo Xét Nghiệm (Ext 8a)
-        cur_xn = await conn.execute("""
-            SELECT DV.TenDichVu, CTXN.KetQuaXetNghiem 
-            FROM CHI_TIET_XET_NGHIEM CTXN
-            JOIN DICH_VU DV ON CTXN.MaDichVu = DV.MaDichVu
-            WHERE CTXN.MaLuotKham = %s
-        """, (ma_lk,))
-        lk['XetNghiem'] = [dict(x) for x in await cur_xn.fetchall()]
+    try:
+        cursor = await conn.execute("""
+            SELECT
+                LK.MaLuotKham,
+                LK.MaLichHen,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                CNDV.MaChiNhanh,
+                CN.TenChiNhanh,
+                CNDV.MaDichVu AS MaDichVuKham,
+                DV.TenDichVu AS TenDichVuKham,
+                LK.MaBenh,
+                B.TenBenh,
+                LK.TrieuChung,
+                LK.LoiDan
+            FROM LUOT_KHAM LK
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            LEFT JOIN BAC_SI BS
+                ON LK.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN CHI_NHANH CN
+                ON CNDV.MaChiNhanh = CN.MaChiNhanh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BENH B
+                ON LK.MaBenh = B.MaBenh
+            WHERE LH.MaBenhAn = %s
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC
+        """, (ma_benh_an,))
 
-    await conn.close()
-    return {"success": True, "message": "Lấy lịch sử khám thành công.", "data": luot_kham_list}
+        luot_kham_list = [dict(row) for row in await cursor.fetchall()]
+
+        if not luot_kham_list:
+            return {"success": False, "message": "Chưa có lịch sử khám.", "data": None}
+
+        for lk in luot_kham_list:
+            ma_lk = lk['MaLuotKham']
+
+            cur_thuoc = await conn.execute("""
+                SELECT
+                    CTDT.MaDonThuoc,
+                    T.MaThuoc,
+                    T.TenThuoc,
+                    T.DonViTinh,
+                    CTDT.SoLuong,
+                    CTDT.LieuDung
+                FROM CHI_TIET_DON_THUOC CTDT
+                JOIN THUOC T ON CTDT.MaThuoc = T.MaThuoc
+                WHERE CTDT.MaLuotKham = %s
+            """, (ma_lk,))
+            lk['DonThuoc'] = [dict(t) for t in await cur_thuoc.fetchall()]
+
+            cur_xn = await conn.execute("""
+                SELECT
+                    CTXN.MaChiTietXN,
+                    DV.MaDichVu,
+                    DV.TenDichVu,
+                    CTXN.KetQuaXetNghiem,
+                    CTXN.TrangThaiXetNghiem,
+                    CTXN.MaXNV,
+                    CTXN.PaymentToken,
+                    CTXN.GiaCuoi
+                FROM CHI_TIET_XET_NGHIEM CTXN
+                JOIN DICH_VU DV ON CTXN.MaDichVu = DV.MaDichVu
+                WHERE CTXN.MaLuotKham = %s
+            """, (ma_lk,))
+            lk['XetNghiem'] = [dict(x) for x in await cur_xn.fetchall()]
+
+            cur_dieu_tri = await conn.execute("""
+                SELECT
+                    LTDT.MaLichTrinh,
+                    DV.MaDichVu,
+                    DV.TenDichVu,
+                    LTDT.BuoiSo,
+                    LTDT.NgayThucHien,
+                    LTDT.CaKham,
+                    LTDT.TrangThai
+                FROM LICH_TRINH_DIEU_TRI LTDT
+                JOIN DICH_VU DV ON LTDT.MaDichVu = DV.MaDichVu
+                WHERE LTDT.MaLuotKham = %s
+                ORDER BY DV.MaDichVu, LTDT.BuoiSo
+            """, (ma_lk,))
+            lk['DieuTri'] = [dict(row) for row in await cur_dieu_tri.fetchall()]
+
+        return {"success": True, "message": "Lấy lịch sử khám thành công.", "data": luot_kham_list}
+    except Exception as exc:
+        return {"success": False, "message": str(exc), "data": None}
+    finally:
+        await conn.close()
 
 
 async def receive_notification(ma_benh_an: str):

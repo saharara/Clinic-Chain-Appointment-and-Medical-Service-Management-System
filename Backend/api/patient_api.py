@@ -66,6 +66,11 @@ async def book_and_pay_api(request: BookAndPayRequest):
     )
 
 
+@router.get("/appointments", response_model=ResponseModel)
+async def get_patient_appointments_api(ma_benh_an: str):
+    return await get_patient_appointments(ma_benh_an)
+
+
 @router.post("/book-treatment", response_model=ResponseModel)
 async def book_treatment_api(
     ma_lich_trinh: str = Form(...),

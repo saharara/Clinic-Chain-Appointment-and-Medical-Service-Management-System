@@ -47,6 +47,7 @@ async def get_doctor_queue(ma_bac_si: str):
                 LH.GiaCuoi,
                 LH.PaymentToken,
                 LH.MaBacSi,
+                LH.MaLeTan,
                 BN.MaBenhAn,
                 BN.HoTen AS TenBenhNhan,
                 BN.GioiTinh,
@@ -71,6 +72,8 @@ async def get_doctor_queue(ma_bac_si: str):
             WHERE
                 LH.MaBacSi = %s
                 AND LH.TrangThai IN ('Chờ khám', 'Chờ kết luận', 'Đang khám')
+                AND LH.MaLeTan IS NOT NULL
+                AND LH.MaLeTan != ''
             ORDER BY LH.NgayKham, LH.CaKham, LH.STT
             """,
             (ma_bac_si,),
@@ -105,7 +108,12 @@ async def update_appointment_status(ma_lich_hen: str, trang_thai: str):
         )
         
         if cursor.rowcount == 0:
-            return {"success": False, "message": "Không tìm thấy lịch hẹn.", "data": None}
+            exists_cursor = await conn.execute(
+                "SELECT MaLichHen FROM LICH_HEN WHERE MaLichHen = %s",
+                (ma_lich_hen,),
+            )
+            if not await exists_cursor.fetchone():
+                return {"success": False, "message": "Không tìm thấy lịch hẹn.", "data": None}
             
         await conn.commit()
         
@@ -134,7 +142,7 @@ async def save_examination_record(exam_data: dict):
     conn = await get_connection()
     try:
         ma_lich_hen = exam_data.get('ma_lich_hen')
-        is_draft = exam_data.get('is_draft', True)
+        is_draft = exam_data.get('is_draft', False)
         ma_benh = exam_data.get('ma_benh')
         ma_bac_si = exam_data.get('ma_bac_si')
         if not ma_bac_si:
@@ -166,6 +174,7 @@ async def save_examination_record(exam_data: dict):
                 dieu_tri_hop_le.append(dt)
         cursor = await conn.execute("SELECT MaLuotKham FROM LUOT_KHAM WHERE MaLichHen = %s", (ma_lich_hen,))
         row = await cursor.fetchone()
+        existing_lab_service_ids = set()
         
         if row:
             ma_luot_kham = row["MaLuotKham"]
@@ -175,7 +184,14 @@ async def save_examination_record(exam_data: dict):
                 WHERE MaLuotKham = %s
             """, (exam_data.get('trieu_chung'), exam_data.get('loi_dan'), ma_benh, ma_luot_kham))
 
-            await conn.execute("DELETE FROM CHI_TIET_XET_NGHIEM WHERE MaLuotKham = %s", (ma_luot_kham,))
+            existing_lab_cursor = await conn.execute(
+                "SELECT MaDichVu FROM CHI_TIET_XET_NGHIEM WHERE MaLuotKham = %s",
+                (ma_luot_kham,),
+            )
+            existing_lab_service_ids = {
+                lab_row["MaDichVu"]
+                for lab_row in await existing_lab_cursor.fetchall()
+            }
             await conn.execute("DELETE FROM CHI_TIET_DON_THUOC WHERE MaLuotKham = %s", (ma_luot_kham,))
             await conn.execute("DELETE FROM LICH_TRINH_DIEU_TRI WHERE MaLuotKham = %s", (ma_luot_kham,))
         else:
@@ -208,11 +224,34 @@ async def save_examination_record(exam_data: dict):
             ))
 
         for xn in xet_nghiem_hop_le:
+            if xn['ma_dich_vu'] in existing_lab_service_ids:
+                continue
+
             ma_ctxn = f"CTXN_{uuid.uuid4().hex[:6].upper()}"
+            price_cursor = await conn.execute("""
+                SELECT
+                    CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS SIGNED) AS GiaCuoi
+                FROM LICH_HEN LH
+                JOIN BENH_NHAN BN
+                    ON LH.MaBenhAn = BN.MaBenhAn
+                LEFT JOIN DANH_MUC_BHYT BHYT
+                    ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
+                JOIN DICH_VU DV
+                    ON DV.MaDichVu = %s
+                WHERE LH.MaLichHen = %s
+            """, (xn['ma_dich_vu'], ma_lich_hen))
+            price_row = await price_cursor.fetchone()
+            gia_cuoi_xn = price_row["GiaCuoi"] if price_row else 0
             await conn.execute("""
-                INSERT INTO CHI_TIET_XET_NGHIEM (MaChiTietXN, MaLuotKham, MaDichVu, TrangThaiXetNghiem)
-                VALUES (%s, %s, %s, 'Chưa thực hiện')
-            """, (ma_ctxn, ma_luot_kham, xn['ma_dich_vu']))
+                INSERT INTO CHI_TIET_XET_NGHIEM (
+                    MaChiTietXN,
+                    MaLuotKham,
+                    MaDichVu,
+                    TrangThaiXetNghiem,
+                    GiaCuoi
+                )
+                VALUES (%s, %s, %s, 'Chưa thực hiện', %s)
+            """, (ma_ctxn, ma_luot_kham, xn['ma_dich_vu'], gia_cuoi_xn))
 
         for thuoc in don_thuoc_hop_le:
             ma_don_thuoc = f"MDT_{uuid.uuid4().hex[:6].upper()}"

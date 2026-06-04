@@ -1,4 +1,68 @@
+import uuid
+
 from check_db import get_connection
+
+
+async def get_tests_by_branch(ma_chi_nhanh: str):
+
+    conn = await get_connection()
+
+    try:
+
+        cursor = await conn.execute("""
+            SELECT
+                CTXN.MaChiTietXN,
+                CTXN.MaLuotKham,
+                CTXN.MaDichVu,
+                DV.TenDichVu,
+                DV.GiaGoc,
+                CAST(DV.GiaGoc * COALESCE(BHYT.TyLeHuong, 0) AS SIGNED) AS BHYTGiamTru,
+                CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS SIGNED) AS GiaCuoiThucTra,
+                CTXN.TrangThaiXetNghiem,
+                CTXN.PaymentToken,
+                CTXN.GiaCuoi,
+                CTXN.KetQuaXetNghiem,
+                CTXN.MaXNV,
+                BN.MaBenhAn,
+                BN.HoTen,
+                BN.CCCD,
+                BN.SDT,
+                LH.MaLichHen,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.MaBacSi,
+                CNDV.MaChiNhanh,
+                BS.HoTen AS TenBacSi,
+                BHYT.TyLeHuong
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN LUOT_KHAM LK
+                ON CTXN.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            LEFT JOIN DANH_MUC_BHYT BHYT
+                ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
+            JOIN DICH_VU DV
+                ON CTXN.MaDichVu = DV.MaDichVu
+            JOIN BAC_SI BS
+                ON LK.MaBacSi = BS.MaBacSi
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            WHERE CNDV.MaChiNhanh = %s
+            ORDER BY LH.NgayKham DESC, LH.CaKham DESC, BN.HoTen
+        """, (ma_chi_nhanh,))
+
+        rows = await cursor.fetchall()
+
+        return {
+            "success": True,
+            "message": "Danh sách xét nghiệm theo chi nhánh.",
+            "data": [dict(row) for row in rows],
+        }
+
+    finally:
+        await conn.close()
 
 
 async def get_pending_tests(ma_chi_nhanh: str):
@@ -106,12 +170,49 @@ async def accept_test_request(ma_chi_tiet_xn: str, ma_chi_nhanh: str):
                 "data": None
             }
 
+        payment_token = req["PaymentToken"] or f"PAY_LAB_{uuid.uuid4().hex[:10].upper()}"
+
+        price_cursor = await conn.execute("""
+            SELECT
+                DV.GiaGoc,
+                CAST(DV.GiaGoc * (1 - COALESCE(BHYT.TyLeHuong, 0)) AS SIGNED) AS GiaCuoiThucTra
+            FROM CHI_TIET_XET_NGHIEM CTXN
+            JOIN LUOT_KHAM LK
+                ON CTXN.MaLuotKham = LK.MaLuotKham
+            JOIN LICH_HEN LH
+                ON LK.MaLichHen = LH.MaLichHen
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            LEFT JOIN DANH_MUC_BHYT BHYT
+                ON BN.KyTuDauBHYT = BHYT.KyTuDauBHYT
+            JOIN DICH_VU DV
+                ON CTXN.MaDichVu = DV.MaDichVu
+            WHERE CTXN.MaChiTietXN = %s
+        """, (ma_chi_tiet_xn,))
+        price_row = await price_cursor.fetchone()
+        gia_cuoi = price_row["GiaCuoiThucTra"] if price_row else req.get("GiaCuoi")
+
+        await conn.execute("""
+            UPDATE CHI_TIET_XET_NGHIEM
+            SET PaymentToken = %s,
+                GiaCuoi = %s
+            WHERE MaChiTietXN = %s
+        """, (
+            payment_token,
+            gia_cuoi,
+            ma_chi_tiet_xn,
+        ))
+
+        await conn.commit()
+
         return {
             "success": True,
-            "message": "Đã nhận yêu cầu xét nghiệm.",
+            "message": "Đã ghi nhận thanh toán xét nghiệm.",
             "data": {
                 "MaChiTietXN": ma_chi_tiet_xn,
-                "TrangThaiMoi": "Chưa thực hiện"
+                "TrangThaiMoi": "Chưa thực hiện",
+                "PaymentToken": payment_token,
+                "GiaCuoi": gia_cuoi
             }
         }
 

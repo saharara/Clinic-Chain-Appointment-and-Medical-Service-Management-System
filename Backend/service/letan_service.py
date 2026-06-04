@@ -3,6 +3,65 @@ import datetime
 from check_db import get_connection
 
 
+async def get_checkin_appointments(ma_chi_nhanh: str, ngay: str):
+    conn = await get_connection()
+
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT
+                LH.MaLichHen,
+                LH.MaBenhAn,
+                BN.HoTen,
+                BN.CCCD,
+                BN.SDT,
+                LH.MaCauHinh,
+                CNDV.MaDichVu,
+                DV.TenDichVu,
+                CNDV.MaChiNhanh,
+                LH.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
+                LH.NgayKham,
+                LH.CaKham,
+                LH.STT,
+                LH.TrangThai,
+                LH.MaLeTan,
+                LH.GiaCuoi,
+                LH.PaymentToken
+            FROM LICH_HEN LH
+            JOIN BENH_NHAN BN
+                ON LH.MaBenhAn = BN.MaBenhAn
+            JOIN CHI_NHANH_DICH_VU CNDV
+                ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BAC_SI BS
+                ON LH.MaBacSi = BS.MaBacSi
+            WHERE
+                CNDV.MaChiNhanh = %s
+                AND LH.NgayKham = %s
+                AND LH.TrangThai = 'Chờ khám'
+                AND (LH.MaLeTan IS NULL OR LH.MaLeTan = '')
+            ORDER BY LH.CaKham, LH.STT, LH.MaLichHen
+            """,
+            (
+                ma_chi_nhanh,
+                ngay,
+            ),
+        )
+        rows = await cursor.fetchall()
+
+        return {
+            "success": True,
+            "message": "Lấy danh sách lịch chờ tiếp đón thành công.",
+            "data": [dict(row) for row in rows],
+        }
+
+    finally:
+        await conn.close()
+
+
 async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str):
     conn = await get_connection()
 
@@ -16,18 +75,28 @@ async def search_checkin_appointment(keyword: str, ma_chi_nhanh: str):
                 BN.CCCD,
                 BN.SDT,
                 LH.MaCauHinh,
+                CNDV.MaDichVu,
+                DV.TenDichVu,
                 CNDV.MaChiNhanh,
                 LH.MaBacSi,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
                 LH.NgayKham,
                 LH.CaKham,
                 LH.STT,
                 LH.TrangThai,
-                LH.MaLeTan
+                LH.MaLeTan,
+                LH.GiaCuoi,
+                LH.PaymentToken
             FROM LICH_HEN LH
             JOIN BENH_NHAN BN
                 ON LH.MaBenhAn = BN.MaBenhAn
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BAC_SI BS
+                ON LH.MaBacSi = BS.MaBacSi
             WHERE
                 CNDV.MaChiNhanh = %s
                 AND (
@@ -82,6 +151,7 @@ async def checkin_patient(
                 LH.TrangThai,
                 LH.NgayKham,
                 LH.MaBacSi,
+                LH.MaLeTan,
                 CNDV.MaChiNhanh
             FROM LICH_HEN LH
             JOIN CHI_NHANH_DICH_VU CNDV
@@ -131,6 +201,8 @@ async def checkin_patient(
                 AND LH.MaBacSi = %s
                 AND LH.NgayKham = %s
                 AND LH.TrangThai IN ('Chờ khám', 'Đang khám')
+                AND LH.MaLeTan IS NOT NULL
+                AND LH.MaLeTan != ''
             """,
             (
                 ma_chi_nhanh,
@@ -199,18 +271,29 @@ async def get_waiting_list_by_doctor(
                 LH.CaKham,
                 LH.STT,
                 LH.MaBacSi,
+                LH.MaLeTan,
                 CNDV.MaChiNhanh,
+                CNDV.MaDichVu,
+                DV.TenDichVu,
+                BS.HoTen AS TenBacSi,
+                BS.ChuyenKhoa,
                 LH.TrangThai
             FROM LICH_HEN LH
             JOIN BENH_NHAN BN
                 ON LH.MaBenhAn = BN.MaBenhAn
             JOIN CHI_NHANH_DICH_VU CNDV
                 ON LH.MaCauHinh = CNDV.MaCauHinh
+            JOIN DICH_VU DV
+                ON CNDV.MaDichVu = DV.MaDichVu
+            LEFT JOIN BAC_SI BS
+                ON LH.MaBacSi = BS.MaBacSi
             WHERE
                 LH.MaBacSi = %s
                 AND CNDV.MaChiNhanh = %s
                 AND LH.NgayKham = %s
                 AND LH.TrangThai = 'Chờ khám'
+                AND LH.MaLeTan IS NOT NULL
+                AND LH.MaLeTan != ''
             ORDER BY LH.STT, LH.CaKham
             """,
             (

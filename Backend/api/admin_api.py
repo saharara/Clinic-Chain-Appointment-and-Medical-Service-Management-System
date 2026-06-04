@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException , Form
+from fastapi import APIRouter, HTTPException , Form, Query
 from pydantic import BaseModel
 from typing import Optional, Any, List
 from service.auth_service import *
@@ -79,3 +79,8 @@ async def get_report_api(
         end_date=end_date
     )
     return result
+
+
+@router.get("/reports/monthly", response_model=ResponseModel)
+async def get_monthly_report_api(month: str = Query(...)):
+    return await get_monthly_report(month)

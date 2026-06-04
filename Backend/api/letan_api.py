@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from service.letan_service import (
     checkin_patient,
+    get_checkin_appointments,
     get_waiting_list_by_doctor,
     search_checkin_appointment,
 )
@@ -25,6 +26,14 @@ async def checkin_patient_api(
     ma_le_tan: str = Form(...),
 ):
     return await checkin_patient(ma_lich_hen, ma_chi_nhanh, ma_le_tan)
+
+
+@router.get("/checkin-appointments", response_model=ResponseModel)
+async def get_checkin_appointments_api(
+    ma_chi_nhanh: str = Query(...),
+    ngay: str = Query(...),
+):
+    return await get_checkin_appointments(ma_chi_nhanh, ngay)
 
 
 @router.get("/search-checkin-appointment", response_model=ResponseModel)

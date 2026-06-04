@@ -28,6 +28,7 @@ class ExamDataRequest(BaseModel):
     xet_nghiem: Optional[List[TestRequest]] = None
     don_thuoc: Optional[List[MedicineRequest]] = None
     dieu_tri: Optional[List[TreatmentRequest]] = None
+    is_draft: Optional[bool] = False
 @router.get("/doctor/get-patients-by-date")
 async def get_patients(
     ma_bac_si: str = Query(..., description="Mã bác sĩ"),

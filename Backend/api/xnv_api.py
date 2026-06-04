@@ -4,6 +4,7 @@ from typing import Optional, Any
 
 from service.xetnghiem_service import (
     get_pending_tests,
+    get_tests_by_branch,
     accept_test_request,
     update_test_result,
     get_test_detail
@@ -18,6 +19,10 @@ class ResponseModel(BaseModel):
 @router.get("/pending-tests", response_model=ResponseModel)
 async def pending_tests(ma_chi_nhanh: str):
     return await get_pending_tests(ma_chi_nhanh)
+
+@router.get("/tests", response_model=ResponseModel)
+async def tests_by_branch(ma_chi_nhanh: str):
+    return await get_tests_by_branch(ma_chi_nhanh)
 
 @router.post("/accept-test", response_model=ResponseModel)
 async def accept_test(
