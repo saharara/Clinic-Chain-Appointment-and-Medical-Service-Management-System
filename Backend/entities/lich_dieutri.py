@@ -9,7 +9,8 @@ class LichTrinhDieuTri:
 	MaDichVu: str
 	BuoiSo: int
 	NgayThucHien: Optional[str]
-	CaKham: int
+	CaKham: Optional[int]
+	MaLichHen: Optional[str]
 	TrangThai: str
 
 	__tablename__ = "LICH_TRINH_DIEU_TRI"
@@ -23,5 +24,6 @@ class LichTrinhDieuTri:
 			BuoiSo=d.get("BuoiSo"),
 			NgayThucHien=d.get("NgayThucHien"),
 			CaKham=d.get("CaKham"),
+			MaLichHen=d.get("MaLichHen"),
 			TrangThai=d.get("TrangThai"),
 		)
